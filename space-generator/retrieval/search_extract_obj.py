@@ -27,11 +27,13 @@ class OBJLoaderTest:
         self.output_path = os.path.join(self.root_path, "output", "individual_meshes")
         
         # 3D-FUTURE dataset paths
+        DATASET_BASE_PATH = os.environ.get('DATASET_BASE_PATH', '../../dataset')
+
         self.dataset_paths = [
-            "../../dataset/3D-FUTURE-model-part1",
-            "../../dataset/3D-FUTURE-model-part2", 
-            "../../dataset/3D-FUTURE-model-part3",
-            "../../dataset/3D-FUTURE-model-part4"
+            os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part1"),
+            os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part2"),
+            os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part3"),
+            os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part4")
 	    ]
         
         # Create output directory

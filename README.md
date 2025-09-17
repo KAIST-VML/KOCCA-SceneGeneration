@@ -31,9 +31,38 @@ cd KOCCA-SceneGeneration
 pip install -r requirements.txt
 
 # Set up environment variables
-cp config.env.example config.env
-nano config.env  # Add your OpenAI API key
+set -a                
+source config.env     # modify it before you use
+set +a
 ```
+
+### Dataset Setup
+
+This project requires the **3D-FUTURE dataset** for 3D object models:
+
+```bash
+# Create dataset directory
+mkdir -p dataset
+
+# Download 3D-FUTURE dataset (registration required)
+# Visit: https://tianchi.aliyun.com/specials/promotion/alibaba-3d-future
+# Download all parts and extract to dataset/ directory
+
+# Expected structure after extraction:
+# dataset/
+# ├── 3D-FUTURE-model-part1/
+# ├── 3D-FUTURE-model-part2/
+# ├── 3D-FUTURE-model-part3/
+# └── 3D-FUTURE-model-part4/
+```
+
+#### 3D-FUTURE Dataset Information
+- **Provider**: 3D-FUTURE: 3D Furniture Shape with Texture provided by Tao Bao (China) Software Co., Ltd. 本数据集由淘宝提供
+- **Competition**: IJCAI-PRICAI 2020 3D AI Challenge: Instance Segmentation
+- **Registration**: https://tianchi.aliyun.com/competition/entrance/231787/information
+- **Website**: https://tianchi.aliyun.com/specials/promotion/alibaba-3d-future
+- **Size**: ~40GB total (distributed across 4 parts)
+- **Models**: 10,000+ high-quality 3D furniture and room objects
 
 ### Configuration
 
@@ -46,6 +75,7 @@ export OPENAI_API_KEY="sk-your-openai-api-key"
 export SCENE_BASE_PATH="./space-generator"
 export SCENE_OUTPUT_DIR="./outputs"
 export SCENE_WORK_DIR="."
+export export DATASET_BASE_PATH = "your dataset path"
 ```
 
 ### Running the Server
@@ -57,6 +87,9 @@ bash run.sh
 # Method 2: Manual execution
 source config.env
 python main.py
+# ex. 
+# python client.py "a cozy living room with a sofa and a coffee table" ./downloads --iterations 200
+
 
 # Method 3: Production deployment
 uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
@@ -171,8 +204,11 @@ KOCCA-SceneGeneration/
 │   └── retrieval/             # Object retrieval system
 │       ├── clip_retrieval.py  # CLIP-based object matching
 │       └── text_retrieval.py  # Text-based object search
-├── dataset/                    # 3D object dataset (not included)
-│   └── 3D-FUTURE-model/       # Download separately
+├── dataset/                    # 3D object dataset (download required)
+│   ├── 3D-FUTURE-model-part1/ # Download from Alibaba Tianchi
+│   ├── 3D-FUTURE-model-part2/ # Registration required
+│   ├── 3D-FUTURE-model-part3/ # ~40GB total size
+│   └── 3D-FUTURE-model-part4/ # 10,000+ 3D models
 └── outputs/                    # Generated scene files
 ```
 
@@ -214,34 +250,4 @@ mypy .
 | `SCENE_OUTPUT_DIR` | Output directory | `./outputs` |
 | `SCENE_WORK_DIR` | Working directory | `.` |
 | `LOG_LEVEL` | Logging level | `INFO` |
-
-## 📊 Performance
-
-- **Generation Time**: 2-5 minutes per scene (depending on complexity)
-- **Memory Usage**: ~8-16GB RAM during generation
-- **Output Size**: 10-50MB GLB files
-- **Concurrent Tasks**: Up to 4 scenes simultaneously (configurable)
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **CUDA Out of Memory**
-   ```bash
-   # Reduce batch size or use CPU-only mode
-   export CUDA_VISIBLE_DEVICES=""
-   ```
-
-2. **OpenAI API Rate Limits**
-   ```bash
-   # Add delay between requests
-   export OPENAI_RATE_LIMIT_DELAY=1
-   ```
-
-3. **Missing 3D Models**
-   ```bash
-   # Download 3D-FUTURE dataset
-   wget https://example.com/3D-FUTURE-dataset.zip
-   unzip 3D-FUTURE-dataset.zip -d ./dataset/
-   ```
 

@@ -198,11 +198,12 @@ def main(query_text_path, candidate_folder, output_dir):
     print("=" * 60)
 
     # 경로 설정
+    base_path = os.environ.get('DATASET_BASE_PATH', '../../dataset')
     folder_paths = [
-    "../../dataset/3D-FUTURE-model-part1",
-    "../../dataset/3D-FUTURE-model-part2",
-    "../../dataset/3D-FUTURE-model-part3",
-    "../../dataset/3D-FUTURE-model-part4"
+        os.path.join(base_path, "3D-FUTURE-model-part1"),
+        os.path.join(base_path, "3D-FUTURE-model-part2"),
+        os.path.join(base_path, "3D-FUTURE-model-part3"),
+        os.path.join(base_path, "3D-FUTURE-model-part4")
     ]
     embedding_path = "clip_image_embeddings.npy"
 

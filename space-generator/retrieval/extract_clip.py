@@ -1,6 +1,7 @@
 from transformers import CLIPProcessor, CLIPModel
 import torch
 from PIL import Image
+import os
 
 clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch16").cuda()
 clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch16")
@@ -37,10 +38,11 @@ def collect_model_image_embeddings(root_dirs, save_path="clip_image_embeddings.n
     print(f"Done! Total embeddings: {len(embedding_dict)}")
 
 # 사용 예시:
+base_path = os.environ.get('DATASET_BASE_PATH', '../../dataset')
 root_folders = [
-    "../../dataset/3D-FUTURE-model-part1",
-    "../../dataset/3D-FUTURE-model-part2", 
-    "../../dataset/3D-FUTURE-model-part3",
-    "../../dataset/3D-FUTURE-model-part4"
+    os.path.join(base_path, "3D-FUTURE-model-part1"),
+    os.path.join(base_path, "3D-FUTURE-model-part2"),
+    os.path.join(base_path, "3D-FUTURE-model-part3"),
+    os.path.join(base_path, "3D-FUTURE-model-part4")
 ]
 collect_model_image_embeddings(root_folders, save_path="clip_image_embeddings.npy")

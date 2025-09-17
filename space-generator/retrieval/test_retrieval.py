@@ -927,11 +927,13 @@ def search_furniture_database(folder_paths: List[str], query_text: str, output_d
 # 사용 예시
 def demo_search(query_text_path, output_dir):
     # 실제 데이터베이스 폴더 경로들
+    DATASET_BASE_PATH = os.environ.get('DATASET_BASE_PATH', '../../dataset')
+
     folder_paths = [
-        "../../dataset/3D-FUTURE-model-part1",
-        "../../dataset/3D-FUTURE-model-part2",
-        "../../dataset/3D-FUTURE-model-part3", 
-        "../../dataset/3D-FUTURE-model-part4"
+        os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part1"),
+        os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part2"),
+        os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part3"),
+        os.path.join(DATASET_BASE_PATH, "3D-FUTURE-model-part4")
     ]
     
     with open(query_text_path, "r", encoding="utf-8") as f:
