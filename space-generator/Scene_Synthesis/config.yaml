@@ -1,0 +1,5 @@
+scene_descriptor: "A home office that is 5m x 5m."
+primary_maxiter: 100
+secondary_maxiter: 100
+save_folder: "Result_txt"
+save_prefix: "home-office"        
