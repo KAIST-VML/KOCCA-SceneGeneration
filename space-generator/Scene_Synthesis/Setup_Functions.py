@@ -90,20 +90,26 @@ def remove_object(room, obj_index):
     return
 
 def region_setup(room, name, index):
+    """ A function that initialises the regions in a room randomly. """
 
-    """ A function that initialises the regions in a room randomly.
-        Inputs:
-        room: Room, the room from which the object is to be removed
-        name: str, the name of the region e.g 'sleeping'
-        index: int, the index of the region (0, 1, 2, ...). First one must be 0, and the rest must be in order.
-    """
+    # --- 최종 디버깅 코드 ---
+    print(f"\n--- Inside region_setup for '{name}' ---")
+    
+    # 1. 함수 시작 시점의 regions 리스트 상태를 확인합니다.
+    print(f"[BEFORE] room.regions: {[r.name for r in room.regions]}")
 
+    # 2. 새로운 Region 객체를 생성합니다.
     x = np.random.uniform(0, room.width)
     y = np.random.uniform(0, room.length)
-
     region = Region(name, x, y, index)
-    room.regions += [region]
-
+    
+    # 3. 리스트에 새로운 region을 추가합니다.
+    room.regions.append(region) # 가장 안정적인 .append() 메소드를 사용합니다.
+    
+    # 4. 수정한 직후의 regions 리스트 상태를 다시 확인합니다.
+    print(f"[AFTER]  room.regions: {[r.name for r in room.regions]}")
+    print(f"--- Exiting region_setup for '{name}' ---")
+    
     return
 
 def create_moving_object(room, name, width, length, region_name, index):

@@ -824,14 +824,19 @@ def save_results_to_files(results_by_object: Dict, output_dir: str = "./search_r
     os.makedirs(output_dir, exist_ok=True)
     
     for object_name, results in results_by_object.items():
-        filename = f"{object_name}_results.txt"
+        # 파일명에서 특수문자 제거 또는 안전하게 변환
+        safe_name = object_name.replace('/', '_').replace('\\', '_').replace('(', '').replace(')', '').replace(':', '_')
+        filename = f"{safe_name}_results.txt"
         filepath = os.path.join(output_dir, filename)
         
-        with open(filepath, 'w', encoding='utf-8') as f:
-            for item, score in results:
-                f.write(f"{item.get('model_id', 'N/A')}\n")
-        
-        print(f"✅ {object_name} 결과 저장됨: {filepath} ({len(results)}개 ID)")
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for item, score in results:
+                    f.write(f"{item.get('model_id', 'N/A')}\n")
+            
+            print(f"✅ {object_name} 결과 저장됨: {filepath} ({len(results)}개 ID)")
+        except Exception as e:
+            print(f"❌ {object_name} 저장 실패: {e}")
 
 def search_furniture_database(folder_paths: List[str], query_text: str, output_dir: str = "./search_results"):
     """실제 데이터베이스를 사용한 가구 검색 (간소화된 버전)"""

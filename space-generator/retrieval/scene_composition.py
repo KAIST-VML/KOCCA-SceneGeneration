@@ -130,9 +130,14 @@ class SceneComposer:
             obj_name = match.group(1)
             all_objects_found += 1
             
-            # Parse position tuple
+            # Parse position tuple - FIXED: 과학적 표기법 지원
             position_str = match.group(2)
-            pos_numbers = re.findall(r'np\.float64\(([\d\.-]+)\)|(\d+(?:\.\d+)?)', position_str)
+            
+            # 🔥 수정된 정규식: 과학적 표기법(e-09, E+10 등) 지원
+            pos_numbers = re.findall(
+                r'np\.float64\(([\d\.\-+eE]+)\)|([\d\.\-+eE]+)',
+                position_str
+            )
             position = []
             for num_match in pos_numbers:
                 if num_match[0]:  # np.float64 format
@@ -289,7 +294,7 @@ class SceneComposer:
         """Create room mesh with floor and walls - ENHANCED VERSION"""
         width = self.layout_data['room_width']
         length = self.layout_data['room_length']
-        height = 3.0  # Standard room height
+        height = 4.0  # Standard room height
         wall_thickness = 0.1
         
         print(f"🏠 Creating room: {width}m x {length}m x {height}m")
@@ -1414,34 +1419,41 @@ class SceneComposer:
             except Exception as rotation_error:
                 print(f"    ❌ Initial rotation failed: {rotation_error}")
             
-            # Step 2: Calculate scaling (Blender와 동일한 로직)
+            # Step 2: Calculate scaling (Proportionally)
             bounds = mesh.bounds
             current_size = bounds[1] - bounds[0]
             current_width = current_size[0]
             current_length = current_size[1] 
             current_height = current_size[2]
             
-            # Target dimensions
+            # Target dimensions from layout.txt
             target_width = obj_data['width']
             target_length = obj_data['length']
             
-            # Calculate scale factors
+            # --- THIS IS THE CORRECTED LOGIC ---
+            
+            # Calculate the required scale for width and length
             scale_x = target_width / current_width if current_width > 0 else 1
             scale_y = target_length / current_length if current_length > 0 else 1
-            scale_z = max(scale_x, scale_y)  # Keep proportional height (Blender와 동일)
             
-            print(f"    🔧 Scaling: {scale_x:.3f}, {scale_y:.3f}, {scale_z:.3f}")
+            # To preserve the object's aspect ratio, use the average of the two scales.
+            # This prevents distortion and stretching.
+            avg_scale = (scale_x + scale_y) / 2.0
             
-            # Apply scaling
+            print(f"    🔧 Calculated uniform scale: {avg_scale:.3f}")
+
+            # Apply uniform scaling
             try:
                 scale_matrix = np.eye(4)
-                scale_matrix[0, 0] = scale_x
-                scale_matrix[1, 1] = scale_y  
-                scale_matrix[2, 2] = scale_z
+                # Apply the SAME average scale to all axes (X, Y, Z)
+                scale_matrix[0, 0] = avg_scale
+                scale_matrix[1, 1] = avg_scale
+                scale_matrix[2, 2] = avg_scale
                 mesh.apply_transform(scale_matrix)
-                print(f"    ✅ Scaling applied")
+                print(f"    ✅ Proportional scaling applied")
             except Exception as scale_error:
                 print(f"    ❌ Scaling failed: {scale_error}")
+
             
             # Step 3: Apply rotation - 가구가 벽을 바라보는 문제 수정
             rotation_z_original = obj_data['position'][2]
