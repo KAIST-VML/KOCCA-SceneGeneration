@@ -8,6 +8,10 @@ from datetime import datetime
 from pathlib import Path
 import threading
 import shutil
+from dotenv import load_dotenv
+
+# Load environment variables from config.env
+load_dotenv('config.env')
 
 # FastAPI 앱 생성
 app = FastAPI(title="Scene Synthesis API", version="1.0.0")
@@ -18,8 +22,8 @@ class SceneRequest(BaseModel):
     iterations: int = 300
     openai_api_key: str = None
 
-# 전역 API 키
-global_openai_api_key = None
+# 전역 API 키 (환경변수에서 로드 시도)
+global_openai_api_key = os.getenv('OPENAI_API_KEY')
 
 # 작업 상태 저장
 tasks = {}
