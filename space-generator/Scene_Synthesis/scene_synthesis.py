@@ -91,7 +91,7 @@ def check_calls_decorator(func):
         return result
     return wrapper
 
-def call_openai(prompt): 
+def call_openai(prompt):
     """Helper function to call OpenAI's API and return the response content."""
     # Define the request payload
     data = {
@@ -99,7 +99,7 @@ def call_openai(prompt):
         "messages": [{"role": "user", "content": prompt}]
         }
     # Make the API call
-    response = requests.post(url, headers=headers, json=data)  
+    response = requests.post(url, headers=headers, json=data)
     # Check the response
     if response.status_code == 200:
         response_data = response.json()
@@ -107,12 +107,13 @@ def call_openai(prompt):
             response = (response_data['choices'][0]['message']['content'].split("```python")[1]).split("```")[0]
         elif "```" in response_data['choices'][0]['message']['content']:
             response = (response_data['choices'][0]['message']['content'].split("```")[1]).split("```")[0]
-        else: 
+        else:
             response = response_data['choices'][0]['message']['content']
         return response
     else:
-        print('Failed to get a response', response.text)
-        return 
+        error_msg = f'Failed to get a response from OpenAI API (Status code: {response.status_code})\nResponse: {response.text}'
+        print(error_msg)
+        raise RuntimeError(error_msg) 
     
 ### BEGIN TIMING
 start_time = time.time() # Start the time
