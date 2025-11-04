@@ -777,11 +777,13 @@ best_res = None
 second_res = None
 bounds = Bounds([-1, -1, -np.inf] * len(room.moving_objects), [room.width + 1, room.length + 1, np.inf] * len(room.moving_objects))
 while min_fun > 1e-2 and iters < min(len(primary_objects)*100, primary_maxiter):
-    positions = np.zeros((len(room.moving_objects) - len(room.fm_indices)) * 3)
-    for i in range(len(room.moving_objects) - len(room.fm_indices)):
-        positions[3*i] = np.random.uniform(0, room.width)
-        positions[3*i + 1] = np.random.uniform(0, room.length)
-        positions[3*i + 2] = np.random.uniform(0, 2*np.pi) 
+    movable_count = len(room.moving_objects) - len(room.fm_indices)
+    positions = np.empty(movable_count * 3)
+    # Same logic as the previous per-object sampling loop, but vectorised for speed.
+    # We keep using np.random.uniform so any external seeding behaves exactly as before.
+    positions[0::3] = np.random.uniform(0, room.width, size=movable_count)
+    positions[1::3] = np.random.uniform(0, room.length, size=movable_count)
+    positions[2::3] = np.random.uniform(0, 2*np.pi, size=movable_count)
     res = minimize(func, positions, args = (room), method = 'SLSQP', options = options, bounds = bounds) 
 
     if iters%50 == 0: 
@@ -829,11 +831,12 @@ for region in range(num_regions):
     best_res2 = None
     second_res = None
     while (min_fun > 1e-2 and best_res2 is None and iters < 400) or (best_res2 and iters < min(num*50, secondary_maxiter)):
-        positions = np.zeros(3*num)
-        for i in range(num):
-            positions[3*i] = np.random.uniform(0, room.width)
-            positions[3*i + 1] = np.random.uniform(0, room.length)
-            positions[3*i + 2] = np.random.uniform(0, 2*np.pi) 
+        positions = np.empty(3*num)
+        # Matches the old element-wise sampling while reducing Python-loop overhead.
+        # Still relies on np.random.uniform to preserve existing seeding behaviour.
+        positions[0::3] = np.random.uniform(0, room.width, size=num)
+        positions[1::3] = np.random.uniform(0, room.length, size=num)
+        positions[2::3] = np.random.uniform(0, 2*np.pi, size=num)
         res = minimize(func, positions, args = (room), method = 'SLSQP', options = options, bounds = bounds)
 
         if iters%50 == 0:
