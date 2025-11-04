@@ -390,7 +390,9 @@ CRITICAL FORMATTING REQUIREMENT:
 - ALWAYS use the variable name 'room' (not '{room_name}' or any other name) as the first parameter in create_moving_object.
 - Correct format: create_moving_object(room, 'region_name', ...)
 - WRONG format: create_moving_object({room_name}, ...) or create_moving_object('{room_name}', ...)
-- DO NOT use the actual room variable name '{room_name}' in the function calls. Use 'room' only."""
+- DO NOT use the actual room variable name '{room_name}' in the function calls. Use 'room' only.
+- IMPORTANT: ALWAYS use double quotes (") for string parameters, NOT single quotes ('), to avoid syntax errors with apostrophes in object names.
+  Example: create_moving_object(room, "children's bed", ...) NOT create_moving_object(room, 'children's bed', ...)"""
 
 response4 = call_openai(prompt4)     
 lines = response4.split("\n")
@@ -409,6 +411,23 @@ response4 = re.sub(
     r'create_moving_object(local_context[room_name],',
     response4_1
 )
+
+# Fix string quotes: Convert single quotes to double quotes for string parameters
+# to avoid syntax errors with apostrophes in object names (e.g., "children's bed")
+def fix_string_quotes(code):
+    """Convert single-quoted strings to double-quoted strings in create_moving_object calls"""
+    lines = []
+    for line in code.split('\n'):
+        if 'create_moving_object' in line:
+            # Replace single quotes at string boundaries with double quotes
+            # Pattern 1: Single quote after comma or opening parenthesis with optional whitespace
+            line = re.sub(r"(?<=[,(]\s)'", '"', line)
+            # Pattern 2: Single quote before comma or closing parenthesis with optional whitespace
+            line = re.sub(r"'(?=\s*[,)])", '"', line)
+        lines.append(line)
+    return '\n'.join(lines)
+
+response4 = fix_string_quotes(response4)
 object_creations = response4.split("\n")  # 또는 원래 방식대로 정리
 strings = response4.split("create_moving_object(local_context[room_name],")
 primary_objects = []
