@@ -4,9 +4,10 @@ import os
 import requests
 from dotenv import load_dotenv
 from scipy.optimize import minimize, Bounds, NonlinearConstraint
-from functools import partial, wraps 
+from functools import partial, wraps
 import time
 import random
+import re
     
 from Setup_Functions import *
 from Class_Structures import *
@@ -90,7 +91,7 @@ def check_calls_decorator(func):
         return result
     return wrapper
 
-def call_openai(prompt): 
+def call_openai(prompt):
     """Helper function to call OpenAI's API and return the response content."""
     # Define the request payload
     data = {
@@ -98,7 +99,7 @@ def call_openai(prompt):
         "messages": [{"role": "user", "content": prompt}]
         }
     # Make the API call
-    response = requests.post(url, headers=headers, json=data)  
+    response = requests.post(url, headers=headers, json=data)
     # Check the response
     if response.status_code == 200:
         response_data = response.json()
@@ -106,12 +107,13 @@ def call_openai(prompt):
             response = (response_data['choices'][0]['message']['content'].split("```python")[1]).split("```")[0]
         elif "```" in response_data['choices'][0]['message']['content']:
             response = (response_data['choices'][0]['message']['content'].split("```")[1]).split("```")[0]
-        else: 
+        else:
             response = response_data['choices'][0]['message']['content']
         return response
     else:
-        print('Failed to get a response', response.text)
-        return 
+        error_msg = f'Failed to get a response from OpenAI API (Status code: {response.status_code})\nResponse: {response.text}'
+        print(error_msg)
+        raise RuntimeError(error_msg) 
     
 ### BEGIN TIMING
 start_time = time.time() # Start the time
@@ -380,9 +382,15 @@ s_io_cons = cleaning4output.choices[0].message.content
 print("Beginning the Translation Phase.")
 
 prompt4 = f"""Given this list of primary objects: {lang3output.choices[0].message.content}, and this list of secondary objects: {lang6output.choices[0].message.content}, use the file attached to create the objects with the correct parameters.
-The room name is: {room_name}, the region names are: {str(list_region_names)}. The room is already set up, only add in the objects using the 'create_moving_object' function. 
+The room name is: {room_name}, the region names are: {str(list_region_names)}. The room is already set up, only add in the objects using the 'create_moving_object' function.
 Ensure that each objects index is unique and that the indices begin from 0. The objects should be added in the correct regions. Add in all of the primary objects first.
-This is the file: {file_contents1}. No extra text, only the function calls. Don't have 'python' at the start of the code. Do not define ANY functions, only call them."""
+This is the file: {file_contents1}. No extra text, only the function calls. Don't have 'python' at the start of the code. Do not define ANY functions, only call them.
+
+CRITICAL FORMATTING REQUIREMENT:
+- ALWAYS use the variable name 'room' (not '{room_name}' or any other name) as the first parameter in create_moving_object.
+- Correct format: create_moving_object(room, 'region_name', ...)
+- WRONG format: create_moving_object({room_name}, ...) or create_moving_object('{room_name}', ...)
+- DO NOT use the actual room variable name '{room_name}' in the function calls. Use 'room' only."""
 
 response4 = call_openai(prompt4)     
 lines = response4.split("\n")
@@ -392,9 +400,15 @@ for line in lines:
         response4_1.append(line)
 response4_1 = ("\n").join(response4_1)
 
-response4_1 = response4_1.replace("create_moving_object(room,", "create_moving_object(" + room_name + ",")
-response4 = remove_identical_lines(response4_1).replace("(" + room_name, "(local_context[room_name]")
-response4 = response4.replace(f"'{room_name}'", room_name).replace(f'"{room_name}"', room_name)
+# 정규표현식을 사용하여 모든 경우를 처리
+# create_moving_object(xxx, ...) -> create_moving_object(local_context[room_name], ...)
+# xxx는 room, home_theater, 'room_name', "room_name" 등 어떤 것이든 가능
+response4_1 = remove_identical_lines(response4_1)
+response4 = re.sub(
+    r'create_moving_object\(\s*["\']?\w+["\']?\s*,',
+    r'create_moving_object(local_context[room_name],',
+    response4_1
+)
 object_creations = response4.split("\n")  # 또는 원래 방식대로 정리
 strings = response4.split("create_moving_object(local_context[room_name],")
 primary_objects = []
@@ -414,9 +428,6 @@ for i in range(num_regions):
 primary_objects = []
 secondary_objects = []
 primary_object_indices = []
-
-
-import re
 
 primary_objects = []
 secondary_objects = []

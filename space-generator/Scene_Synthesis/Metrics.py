@@ -33,6 +33,10 @@ def medial_axis(room, draw = False):
 
     final_points = []
 
+    # Initialize crit and crit2 with default values (return False for all points)
+    crit = lambda x: False
+    crit2 = lambda x: False
+
     # Draw the room
     rect = patches.Rectangle((0, 0), room.width, room.length, linewidth=2, edgecolor='black', facecolor='none', label='_nolegend_')
 
