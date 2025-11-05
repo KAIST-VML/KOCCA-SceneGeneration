@@ -138,7 +138,7 @@ for i in "${!PROMPTS[@]}"; do
       FAIL=$((FAIL + 1))
       continue
     fi
-  }
+  fi
 
   echo "[2/3] CLIP retrieval"
   if dir_has_content "$CLIP_RETRIEVAL_DIR"; then
@@ -151,7 +151,7 @@ for i in "${!PROMPTS[@]}"; do
       FAIL=$((FAIL + 1))
       continue
     fi
-  }
+  fi
 
   echo "[3/3] Scene composition"
   if dir_has_content "$RESULT_DIR" && find "$RESULT_DIR" -type f -name '*.glb' -print -quit >/dev/null 2>&1; then
