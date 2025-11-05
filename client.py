@@ -151,7 +151,7 @@ def main():
     parser = argparse.ArgumentParser(description='3D Scene Generation Client')
     parser.add_argument('input_prompt', help='씬 설명 텍스트')
     parser.add_argument('save_dir', help='GLB 파일 저장 경로')
-    parser.add_argument('--iterations', type=int, default=300, help='반복 횟수 (기본값: 300)')
+    parser.add_argument('--iterations', type=int, default=200, help='반복 횟수 (기본값: 300)')
     parser.add_argument('--server-url', default=os.getenv('SCENE_SERVER_URL', 'http://localhost:8000'), help='서버 URL')
     parser.add_argument('--api-key', default=os.getenv('OPENAI_API_KEY'), help='OpenAI API 키')
     parser.add_argument('--check-interval', type=int, default=10, help='상태 확인 간격 (초, 기본값: 10)')

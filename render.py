@@ -100,7 +100,7 @@ def render_glb_interior_view(glb_path, output_path,
         
         # Pyrender scene 생성 - 🔥 ambient_light 줄임
         render_scene = pyrender.Scene(
-            ambient_light=[0.05, 0.05, 0.05],  # 0.3 → 0.05로 줄임
+            ambient_light=[0.3, 0.3, 0.3],  # 0.3 → 0.05로 줄임
             bg_color=background_color
         )
         
@@ -169,7 +169,7 @@ def render_glb_interior_view(glb_path, output_path,
         # 1. 천장 조명
         ceiling_light = pyrender.PointLight(
             color=[1.0, 1.0, 0.95],
-            intensity=20.0  # 100.0 → 20.0
+            intensity=100.0  # 100.0 → 20.0
         )
         ceiling_pos = np.array([
             [1, 0, 0, center[0]],
@@ -182,7 +182,7 @@ def render_glb_interior_view(glb_path, output_path,
         # 2. 방향광
         window_light = pyrender.DirectionalLight(
             color=[1.0, 1.0, 1.0],
-            intensity=0.5  # 3.0 → 0.5
+            intensity=3.0  # 3.0 → 0.5
         )
         window_pose = np.array([
             [1, 0, 0, 0],
@@ -195,7 +195,7 @@ def render_glb_interior_view(glb_path, output_path,
         # 3. Fill light
         fill_light = pyrender.PointLight(
             color=[1.0, 1.0, 1.0],
-            intensity=10.0  # 30.0 → 10.0
+            intensity=30.0  # 30.0 → 10.0
         )
         fill_pos = np.array([
             [1, 0, 0, camera_position[0]],

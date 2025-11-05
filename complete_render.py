@@ -69,7 +69,7 @@ class FourWallsRenderer:
 
     def render_top_view(self):
         """탑뷰 - 위에서 아래로 (정사각형)"""
-        camera_height = self.room_z_max + max(self.room_width, self.room_length) * 0.5
+        camera_height = self.room_z_max + max(self.room_width, self.room_length) * 0.3
         
         return self.render_view(
             "01_top_view",
@@ -80,7 +80,7 @@ class FourWallsRenderer:
             ],
             look_at=self.center,
             fov=65,
-            resolution=(1080, 1080)  # 정사각형 해상도
+            resolution=(512, 512)  # 정사각형 해상도
         )
     
     def render_from_back_wall(self):
@@ -118,11 +118,6 @@ class FourWallsRenderer:
         if top:
             results.append(top)
         
-        # 2. 뒤쪽 벽
-        print("\n📸 BACK WALL VIEW")
-        back = self.render_from_back_wall()
-        if back:
-            results.append(back)
         
         # 결과 요약
         print("\n" + "=" * 60)

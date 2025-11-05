@@ -2,14 +2,17 @@
 
 # 방 크기, 스타일, 목적에 초점을 맞춘 프롬프트들을 배열로 정의합니다.
 PROMPTS=(
-    "A compact 4x4 study space with a clean and functional Scandinavian design."
-    "A long 6x3 gallery-style hallway for displaying art, with a bright and neutral theme."
-    "A large 8x6 open-plan area for family gatherings, with a comfortable and casual style."
-    "A 4x5 child room for a child's creative play, with a vibrant and colorful theme."
-    "A moody and dark 5x5 room for a home theater, with an industrial-chic style."
-    "A bright 4x3 sunroom for relaxation and plants, with a bohemian and natural vibe."
-    "A formal 6x6 dining space for elegant dinners, with a classic and traditional decor."
+    "A cozy 4x4 children’s bedroom with Scandinavian design, light wood furniture, and soft pastel tones."
+    "A minimalist 6x5 living room with modern furniture, large windows, and a neutral color palette."
+    "A luxurious 6x6 master bedroom with contemporary style, marble floor, and ambient indirect lights."
+    "A rustic 5x4 family dining space with a wooden table, pendant lamps, and green plants."
+    "A small 3x3 home office with industrial style, metal desk, and an exposed brick wall."
+    "A bright 4x4 guest room with simple furniture, beige walls, and a welcoming atmosphere."
+    "A 7x6 open-plan dining-living space with contemporary furniture and natural sunlight."
+    "A cozy 2x2 reading corner with a soft armchair, rug, and warm bohemian lighting."
+    "A warm 5x5 wood-tone living room with oak flooring, wooden beams, and soft cream fabrics."
 )
+
 
 # 결과물을 저장할 디렉토리를 지정합니다. (없으면 생성)
 OUTPUT_DIR="./style_renders_robust2"

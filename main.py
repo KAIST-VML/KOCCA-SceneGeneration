@@ -22,7 +22,7 @@ app = FastAPI(title="Scene Synthesis API", version="1.0.0")
 # 요청 모델
 class SceneRequest(BaseModel):
     scene_descriptor: str
-    iterations: int = 300
+    iterations: int = 200
     openai_api_key: str = None
 
 # 전역 API 키 (환경변수에서 로드 시도)
