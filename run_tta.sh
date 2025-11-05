@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Text-to-Asset end-to-end automation script.
-# 1. Runs the layout + retrieval + composition pipeline for each prompt.
-# 2. Renders the generated GLB from a top view.
-# 3. Calculates CLIP similarity between the prompt and rendered image.
+# Text-to-Asset post-processing automation script.
+# 1. Looks for pre-generated layout outputs for each prompt.
+# 2. Runs retrieval + composition only when matching outputs already exist.
+# 3. Renders the generated GLB from a top view and measures CLIP similarity.
 
 PROMPTS=(
     "A 4x4 living room in Scandinavian style with warm wood tones and neutral colors."
@@ -20,20 +20,66 @@ PROMPTS=(
 )
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_OUTPUT_DIR="${1:-${SCRIPT_DIR}/outputs_tta}"
+BASE_OUTPUT_DIR="${1:-${SCRIPT_DIR}/outputs}"
 RENDER_OUTPUT_DIR="${2:-${SCRIPT_DIR}/renders_tta}"
 CLIP_MODEL_NAME="${3:-laion/CLIP-ViT-H-14-laion2B-s32B-b79K}"
+DATASET_BASE_PATH_ARG="${4:-}"
 
-mkdir -p "$BASE_OUTPUT_DIR" "$RENDER_OUTPUT_DIR"
+CONFIG_FILE="$SCRIPT_DIR/config.env"
+
+# Source config.env when available so DATASET_BASE_PATH and other shared
+# settings are consistent with the rest of the project. Allow callers to
+# override by passing the dataset path explicitly or exporting the variable
+# ahead of time.
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  if [ -n "$DATASET_BASE_PATH_ARG" ]; then
+    export DATASET_BASE_PATH="$DATASET_BASE_PATH_ARG"
+  elif [ -f "$CONFIG_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+fi
+
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  echo "[ERROR] DATASET_BASE_PATH is not set. Provide it as the 4th argument or export the variable." >&2
+  exit 1
+fi
+
+if [ ! -d "$DATASET_BASE_PATH" ]; then
+  echo "[ERROR] DATASET_BASE_PATH directory not found: $DATASET_BASE_PATH" >&2
+  exit 1
+fi
+
+export DATASET_BASE_PATH
+
+if [ ! -d "$BASE_OUTPUT_DIR" ]; then
+  echo "[ERROR] Base output directory not found: $BASE_OUTPUT_DIR" >&2
+  exit 1
+fi
+
+mkdir -p "$RENDER_OUTPUT_DIR"
 
 PROMPTS_FILE="$BASE_OUTPUT_DIR/prompts.txt"
 CLIP_SUMMARY_FILE="$RENDER_OUTPUT_DIR/clip_summary.csv"
 
-echo "" > "$PROMPTS_FILE"
+: > "$PROMPTS_FILE"
 echo "index,prompt,image_path,clip_similarity" > "$CLIP_SUMMARY_FILE"
+
+echo "[INFO] Using dataset base: $DATASET_BASE_PATH"
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+dir_has_content() {
+  local target_dir="$1"
+  if [ -d "$target_dir" ]; then
+    local first_entry
+    first_entry=$(find "$target_dir" -mindepth 1 -print -quit)
+    [[ -n "$first_entry" ]]
+  else
+    return 1
+  fi
 }
 
 if command_exists python3; then
@@ -67,6 +113,7 @@ prompt_to_folder_name() {
 TOTAL=${#PROMPTS[@]}
 SUCCESS=0
 FAIL=0
+SKIPPED=0
 
 for i in "${!PROMPTS[@]}"; do
   PROMPT="${PROMPTS[$i]}"
@@ -74,6 +121,8 @@ for i in "${!PROMPTS[@]}"; do
 
   FOLDER_NAME=$(prompt_to_folder_name "$PROMPT")
   SCENE_DIR="$BASE_OUTPUT_DIR/$FOLDER_NAME"
+  RESULT_TXT_DIR="$SCENE_DIR/Result_txt"
+  RETRIEVAL_ROOT="$SCENE_DIR/Result_retrieval"
   RESULT_DIR="$SCENE_DIR/Result"
   RENDER_DIR="$RENDER_OUTPUT_DIR/$FOLDER_NAME"
 
@@ -84,12 +133,67 @@ for i in "${!PROMPTS[@]}"; do
   echo "Render directory: $RENDER_DIR"
   echo "============================================================"
 
-  mkdir -p "$SCENE_DIR" "$RENDER_DIR"
+  mkdir -p "$RENDER_DIR"
 
-  if ! bash "$SCRIPT_DIR/layout_scene_api.sh" "$PROMPT" "$SCENE_DIR"; then
-    echo "✗ Pipeline failed for prompt: $PROMPT" >&2
+  LAYOUT_FILE="$RESULT_TXT_DIR/layout.txt"
+
+  if [ ! -f "$LAYOUT_FILE" ]; then
+    echo "  - layout.txt not found, skipping prompt." >&2
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
+
+  echo "layout file: $LAYOUT_FILE"
+
+  RETRIEVAL_DIR="$SCRIPT_DIR/space-generator/retrieval"
+  if [ ! -d "$RETRIEVAL_DIR" ]; then
+    echo "✗ Retrieval pipeline directory not found: $RETRIEVAL_DIR" >&2
     FAIL=$((FAIL + 1))
     continue
+  fi
+
+  TEXT_RETRIEVAL_DIR="$RETRIEVAL_ROOT/text_retrieval"
+  CLIP_RETRIEVAL_DIR="$RETRIEVAL_ROOT/clip_retrieval"
+
+  mkdir -p "$TEXT_RETRIEVAL_DIR" "$CLIP_RETRIEVAL_DIR" "$RESULT_DIR"
+
+  echo "[1/3] Text retrieval"
+  if dir_has_content "$TEXT_RETRIEVAL_DIR"; then
+    echo "  - Existing results detected, skipping."
+  else
+    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" test_retrieval.py --layout_path "$LAYOUT_FILE" --output_dir "$TEXT_RETRIEVAL_DIR"); then
+      echo "  ✓ Text retrieval completed."
+    else
+      echo "  ✗ Text retrieval failed." >&2
+      FAIL=$((FAIL + 1))
+      continue
+    fi
+  fi
+
+  echo "[2/3] CLIP retrieval"
+  if dir_has_content "$CLIP_RETRIEVAL_DIR"; then
+    echo "  - Existing results detected, skipping."
+  else
+    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" retrieval_clip.py --layout_path "$LAYOUT_FILE" --candidate_folder "$TEXT_RETRIEVAL_DIR" --output_dir "$CLIP_RETRIEVAL_DIR"); then
+      echo "  ✓ CLIP retrieval completed."
+    else
+      echo "  ✗ CLIP retrieval failed." >&2
+      FAIL=$((FAIL + 1))
+      continue
+    fi
+  fi
+
+  echo "[3/3] Scene composition"
+  if dir_has_content "$RESULT_DIR" && find "$RESULT_DIR" -type f -name '*.glb' -print -quit >/dev/null 2>&1; then
+    echo "  - Existing GLB detected, skipping composition."
+  else
+    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" scene_composition.py --root "$RESULT_TXT_DIR" --clip-results "$CLIP_RETRIEVAL_DIR" --output "$RESULT_DIR"); then
+      echo "  ✓ Scene composition completed."
+    else
+      echo "  ✗ Scene composition failed." >&2
+      FAIL=$((FAIL + 1))
+      continue
+    fi
   fi
 
   GLB_FILE=$(find "$RESULT_DIR" -maxdepth 1 -type f -name '*.glb' | head -n1)
@@ -151,9 +255,11 @@ echo "Summary"
 echo "  Total prompts : $TOTAL"
 echo "  Success        : $SUCCESS"
 echo "  Failed         : $FAIL"
+echo "  Skipped        : $SKIPPED"
 echo "Outputs"
 echo "  Layout base    : $BASE_OUTPUT_DIR"
 echo "  Renders        : $RENDER_OUTPUT_DIR"
 echo "  Prompts file   : $PROMPTS_FILE"
 echo "  CLIP summary   : $CLIP_SUMMARY_FILE"
+echo "  Dataset base   : $DATASET_BASE_PATH"
 echo "Done."
