@@ -155,45 +155,48 @@ for i in "${!PROMPTS[@]}"; do
   TEXT_RETRIEVAL_DIR="$RETRIEVAL_ROOT/text_retrieval"
   CLIP_RETRIEVAL_DIR="$RETRIEVAL_ROOT/clip_retrieval"
 
-  mkdir -p "$TEXT_RETRIEVAL_DIR" "$CLIP_RETRIEVAL_DIR" "$RESULT_DIR"
+  mkdir -p "$RETRIEVAL_ROOT"
 
   echo "[1/3] Text retrieval"
   if dir_has_content "$TEXT_RETRIEVAL_DIR"; then
-    echo "  - Existing results detected, skipping."
+    echo "  - Existing text retrieval detected, refreshing directory."
+    rm -rf "$TEXT_RETRIEVAL_DIR"
+  fi
+  mkdir -p "$TEXT_RETRIEVAL_DIR"
+  if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" test_retrieval.py --layout_path "$LAYOUT_FILE" --output_dir "$TEXT_RETRIEVAL_DIR"); then
+    echo "  ✓ Text retrieval completed."
   else
-    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" test_retrieval.py --layout_path "$LAYOUT_FILE" --output_dir "$TEXT_RETRIEVAL_DIR"); then
-      echo "  ✓ Text retrieval completed."
-    else
-      echo "  ✗ Text retrieval failed." >&2
-      FAIL=$((FAIL + 1))
-      continue
-    fi
+    echo "  ✗ Text retrieval failed." >&2
+    FAIL=$((FAIL + 1))
+    continue
   fi
 
   echo "[2/3] CLIP retrieval"
   if dir_has_content "$CLIP_RETRIEVAL_DIR"; then
-    echo "  - Existing results detected, skipping."
+    echo "  - Existing CLIP retrieval detected, refreshing directory."
+    rm -rf "$CLIP_RETRIEVAL_DIR"
+  fi
+  mkdir -p "$CLIP_RETRIEVAL_DIR"
+  if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" retrieval_clip.py --layout_path "$LAYOUT_FILE" --candidate_folder "$TEXT_RETRIEVAL_DIR" --output_dir "$CLIP_RETRIEVAL_DIR"); then
+    echo "  ✓ CLIP retrieval completed."
   else
-    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" retrieval_clip.py --layout_path "$LAYOUT_FILE" --candidate_folder "$TEXT_RETRIEVAL_DIR" --output_dir "$CLIP_RETRIEVAL_DIR"); then
-      echo "  ✓ CLIP retrieval completed."
-    else
-      echo "  ✗ CLIP retrieval failed." >&2
-      FAIL=$((FAIL + 1))
-      continue
-    fi
+    echo "  ✗ CLIP retrieval failed." >&2
+    FAIL=$((FAIL + 1))
+    continue
   fi
 
   echo "[3/3] Scene composition"
-  if dir_has_content "$RESULT_DIR" && find "$RESULT_DIR" -type f -name '*.glb' -print -quit >/dev/null 2>&1; then
-    echo "  - Existing GLB detected, skipping composition."
+  if dir_has_content "$RESULT_DIR"; then
+    echo "  - Existing scene artifacts detected, refreshing directory."
+    rm -rf "$RESULT_DIR"
+  fi
+  mkdir -p "$RESULT_DIR"
+  if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" scene_composition.py --root "$RESULT_TXT_DIR" --clip-results "$CLIP_RETRIEVAL_DIR" --output "$RESULT_DIR"); then
+    echo "  ✓ Scene composition completed."
   else
-    if (cd "$RETRIEVAL_DIR" && "$PYTHON_BIN" scene_composition.py --root "$RESULT_TXT_DIR" --clip-results "$CLIP_RETRIEVAL_DIR" --output "$RESULT_DIR"); then
-      echo "  ✓ Scene composition completed."
-    else
-      echo "  ✗ Scene composition failed." >&2
-      FAIL=$((FAIL + 1))
-      continue
-    fi
+    echo "  ✗ Scene composition failed." >&2
+    FAIL=$((FAIL + 1))
+    continue
   fi
 
   GLB_FILE=$(find "$RESULT_DIR" -maxdepth 1 -type f -name '*.glb' | head -n1)
