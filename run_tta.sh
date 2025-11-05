@@ -23,6 +23,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_OUTPUT_DIR="${1:-${SCRIPT_DIR}/outputs}"
 RENDER_OUTPUT_DIR="${2:-${SCRIPT_DIR}/renders_tta}"
 CLIP_MODEL_NAME="${3:-laion/CLIP-ViT-H-14-laion2B-s32B-b79K}"
+DATASET_BASE_PATH_ARG="${4:-}"
+
+CONFIG_FILE="$SCRIPT_DIR/config.env"
+
+# Source config.env when available so DATASET_BASE_PATH and other shared
+# settings are consistent with the rest of the project. Allow callers to
+# override by passing the dataset path explicitly or exporting the variable
+# ahead of time.
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  if [ -n "$DATASET_BASE_PATH_ARG" ]; then
+    export DATASET_BASE_PATH="$DATASET_BASE_PATH_ARG"
+  elif [ -f "$CONFIG_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+fi
+
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  echo "[ERROR] DATASET_BASE_PATH is not set. Provide it as the 4th argument or export the variable." >&2
+  exit 1
+fi
+
+if [ ! -d "$DATASET_BASE_PATH" ]; then
+  echo "[ERROR] DATASET_BASE_PATH directory not found: $DATASET_BASE_PATH" >&2
+  exit 1
+fi
+
+export DATASET_BASE_PATH
 
 if [ ! -d "$BASE_OUTPUT_DIR" ]; then
   echo "[ERROR] Base output directory not found: $BASE_OUTPUT_DIR" >&2
@@ -36,6 +64,8 @@ CLIP_SUMMARY_FILE="$RENDER_OUTPUT_DIR/clip_summary.csv"
 
 : > "$PROMPTS_FILE"
 echo "index,prompt,image_path,clip_similarity" > "$CLIP_SUMMARY_FILE"
+
+echo "[INFO] Using dataset base: $DATASET_BASE_PATH"
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
@@ -231,4 +261,5 @@ echo "  Layout base    : $BASE_OUTPUT_DIR"
 echo "  Renders        : $RENDER_OUTPUT_DIR"
 echo "  Prompts file   : $PROMPTS_FILE"
 echo "  CLIP summary   : $CLIP_SUMMARY_FILE"
+echo "  Dataset base   : $DATASET_BASE_PATH"
 echo "Done."

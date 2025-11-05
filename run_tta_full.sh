@@ -25,6 +25,30 @@ BASE_OUTPUT_DIR="${1:-${SCRIPT_DIR}/outputs_tta_full}"
 RENDER_OUTPUT_DIR="${2:-${SCRIPT_DIR}/renders_tta_full}"
 ITERATIONS="${3:-300}"
 CLIP_MODEL_NAME="${4:-laion/CLIP-ViT-H-14-laion2B-s32B-b79K}"
+DATASET_BASE_PATH_ARG="${5:-}"
+
+CONFIG_FILE="$SCRIPT_DIR/config.env"
+
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  if [ -n "$DATASET_BASE_PATH_ARG" ]; then
+    export DATASET_BASE_PATH="$DATASET_BASE_PATH_ARG"
+  elif [ -f "$CONFIG_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+  fi
+fi
+
+if [ -z "${DATASET_BASE_PATH:-}" ]; then
+  echo "[ERROR] DATASET_BASE_PATH is not set. Provide it as the 5th argument or export the variable." >&2
+  exit 1
+fi
+
+if [ ! -d "$DATASET_BASE_PATH" ]; then
+  echo "[ERROR] DATASET_BASE_PATH directory not found: $DATASET_BASE_PATH" >&2
+  exit 1
+fi
+
+export DATASET_BASE_PATH
 
 if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]]; then
   echo "[ERROR] Iterations must be a positive integer (given: $ITERATIONS)" >&2
@@ -39,6 +63,8 @@ CLIP_SUMMARY_FILE="$RENDER_OUTPUT_DIR/clip_summary.csv"
 # Reset run artifacts
 : > "$PROMPTS_FILE"
 printf 'index,prompt,image_path,clip_similarity,iterations\n' > "$CLIP_SUMMARY_FILE"
+
+echo "[INFO] Using dataset base: $DATASET_BASE_PATH"
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
@@ -165,4 +191,5 @@ echo "  Layout base    : $BASE_OUTPUT_DIR"
 echo "  Renders        : $RENDER_OUTPUT_DIR"
 echo "  Prompts file   : $PROMPTS_FILE"
 echo "  CLIP summary   : $CLIP_SUMMARY_FILE"
+echo "  Dataset base   : $DATASET_BASE_PATH"
 echo "Done."
