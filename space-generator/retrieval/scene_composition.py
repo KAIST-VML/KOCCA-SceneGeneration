@@ -789,14 +789,16 @@ class SceneComposer:
                 )
                 
                 # Check for openings on this wall
-                openings = self.get_openings_for_wall(wall_name, width, length)
-                
+                # NOTE: Door/window carving is disabled per request. Leave walls solid.
+                # openings = self.get_openings_for_wall(wall_name, width, length)
+                openings = []
+
                 if openings:
                     print(f"  🚪 Found {len(openings)} openings for {wall_name}")
                     # Cut openings
                     wall_mesh = self.cut_wall_openings_enhanced(wall_mesh, wall_name, openings, width, length, height)
                 else:
-                    print(f"  ℹ️  No openings for {wall_name}")
+                    print(f"  ℹ️  Door/window carving disabled for {wall_name}")
                 
                 walls.append((wall_mesh, wall_name))
                 print(f"  ✅ {wall_name} created successfully")

@@ -5,9 +5,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 import os
 import re
 import time
+import hashlib
 
 clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch16").cuda()
 clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch16")
+
+
+def _sanitize_object_name(object_name: str, max_length: int = 100) -> str:
+    """Match the filename sanitization used during text retrieval."""
+
+    slug = re.sub(r"[^a-z0-9]+", "_", object_name.lower())
+    slug = slug.strip("_")
+
+    if not slug:
+        slug = "object"
+
+    if len(slug) > max_length:
+        suffix = hashlib.md5(object_name.encode("utf-8")).hexdigest()[:8]
+        slug = f"{slug[: max_length - 9]}_{suffix}"
+
+    return slug
 
 def get_clip_text_embedding(text):
     max_length = 77
@@ -103,14 +120,28 @@ def clip_rerank_for_all_objects(results_by_object, query_text, embedding_dict, d
     for object_name, object_block in items:
         obj_start = time.time()
         obj_key = object_name.strip().lower()
-        
+        slug_key = _sanitize_object_name(obj_key)
+
         print(f"\n🔍 처리 중: {object_name.upper()}")
-        
+
         # 후보 ID 리스트 가져오기
-        id_list = results_by_object.get(obj_key, [])
+        id_list = results_by_object.get(slug_key)
+
         if not id_list:
-                print(f"❌ {obj_key} 후보 없음 → 전체 DB에서 검색 시도")
-                candidate_items = [(item, 0) for item in database]
+            legacy_keys = {
+                obj_key,
+                obj_key.replace(" ", "_"),
+                slug_key.replace("_", " ")
+            }
+
+            for legacy_key in legacy_keys:
+                if legacy_key in results_by_object:
+                    id_list = results_by_object[legacy_key]
+                    break
+
+        if not id_list:
+            print(f"❌ {obj_key} 후보 없음 → 전체 DB에서 검색 시도")
+            candidate_items = [(item, 0) for item in database]
         else:
             candidate_items = [(db_by_id[mid], 0) for mid in id_list if mid in db_by_id]
 
