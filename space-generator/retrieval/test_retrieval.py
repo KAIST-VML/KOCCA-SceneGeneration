@@ -2,6 +2,7 @@
 import json
 import re
 import os
+import hashlib
 from typing import List, Dict, Tuple, Set
 from collections import defaultdict, Counter
 from difflib import SequenceMatcher
@@ -819,13 +820,30 @@ class DatabaseLoader:
         print(f"✅ 중복 제거 완료: {duplicate_count}개 중복 항목 제거됨")
         return database
 
+def _sanitize_object_name(object_name: str, max_length: int = 100) -> str:
+    """Create a filesystem-safe, reasonably short slug for object names."""
+
+    # Normalize to lowercase and replace non-alphanumeric characters with underscores
+    slug = re.sub(r"[^a-z0-9]+", "_", object_name.lower())
+    slug = slug.strip("_")
+
+    if not slug:
+        slug = "object"
+
+    if len(slug) > max_length:
+        suffix = hashlib.md5(object_name.encode("utf-8")).hexdigest()[:8]
+        slug = f"{slug[: max_length - 9]}_{suffix}"
+
+    return slug
+
+
 def save_results_to_files(results_by_object: Dict, output_dir: str = "./search_results"):
     """검색 결과를 object별로 텍스트 파일에 저장 (ID만)"""
     os.makedirs(output_dir, exist_ok=True)
     
     for object_name, results in results_by_object.items():
         # 파일명에서 특수문자 제거 또는 안전하게 변환
-        safe_name = object_name.replace('/', '_').replace('\\', '_').replace('(', '').replace(')', '').replace(':', '_')
+        safe_name = _sanitize_object_name(object_name)
         filename = f"{safe_name}_results.txt"
         filepath = os.path.join(output_dir, filename)
         
