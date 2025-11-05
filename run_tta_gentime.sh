@@ -16,14 +16,14 @@ PROMPTS=(
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 결과 한 방에 모을 루트
+# 결과를 한 폴더에 모은다
 TTA_ROOT="${1:-${SCRIPT_DIR}/tta_results}"
 ITERATIONS="${2:-300}"
-CLIP_MODEL_NAME="${3:-laion/CLIP-ViT-H-14-laion2B-s32B-b79K}"
-DATASET_BASE_PATH_ARG="${4:-}"
+DATASET_BASE_PATH_ARG="${3:-}"
 
 CONFIG_FILE="$SCRIPT_DIR/config.env"
 
+# DATASET_BASE_PATH 설정
 if [ -z "${DATASET_BASE_PATH:-}" ]; then
   if [ -n "$DATASET_BASE_PATH_ARG" ]; then
     export DATASET_BASE_PATH="$DATASET_BASE_PATH_ARG"
@@ -51,12 +51,12 @@ fi
 mkdir -p "$TTA_ROOT"
 
 PROMPTS_FILE="$TTA_ROOT/prompts.txt"
-CLIP_SUMMARY_FILE="$TTA_ROOT/clip_summary.txt"
 LOG_FILE="$TTA_ROOT/Log.txt"
+TIME_SUMMARY_FILE="$TTA_ROOT/time_summary.txt"
 
 : > "$PROMPTS_FILE"
-: > "$CLIP_SUMMARY_FILE"
 : > "$LOG_FILE"
+: > "$TIME_SUMMARY_FILE"
 
 printf '[%s] START LOG\n' "$(date '+%Y-%m-%d-%H-%M-%S')" >> "$LOG_FILE"
 
@@ -105,7 +105,6 @@ for i in "${!PROMPTS[@]}"; do
   printf '%s\n' "$PROMPT" >> "$PROMPTS_FILE"
 
   FOLDER_NAME=$(prompt_to_folder_name "$PROMPT")
-  # 프롬프트별 작업 폴더
   SCENE_DIR="$TTA_ROOT/$FOLDER_NAME"
   RESULT_DIR="$SCENE_DIR/Result"
   mkdir -p "$SCENE_DIR" "$RESULT_DIR"
@@ -116,14 +115,20 @@ for i in "${!PROMPTS[@]}"; do
   echo "Scene directory: $SCENE_DIR"
   echo "============================================================"
 
-  # 1) scene 생성
+  # 전체 시간 시작
+  PROMPT_START_TS=$(date +%s)
+
+  # 1) layout / scene 생성 시간 측정
+  LAYOUT_START_TS=$(date +%s)
   if ! bash "$SCRIPT_DIR/layout_scene_api.sh" "$PROMPT" "$SCENE_DIR" "$ITERATIONS"; then
     echo "✗ Pipeline failed for prompt: $PROMPT" >&2
     FAIL=$((FAIL + 1))
     continue
   fi
+  LAYOUT_END_TS=$(date +%s)
+  LAYOUT_ELAPSED=$((LAYOUT_END_TS - LAYOUT_START_TS))
 
-  # 2) GLB 찾기 (프롬프트 폴더 안)
+  # 2) GLB 찾기
   GLB_FILE=$(find "$RESULT_DIR" -type f -name '*.glb' | head -n1)
   if [ -z "$GLB_FILE" ]; then
     echo "✗ GLB file not found for prompt: $PROMPT" >&2
@@ -131,12 +136,27 @@ for i in "${!PROMPTS[@]}"; do
     continue
   fi
 
-  # 3) 렌더 (출력은 프롬프트 폴더 안에)
+  # 루트로 복사 (최종 산출물 모으기)
+  ROOT_GLB="$TTA_ROOT/${FOLDER_NAME}.glb"
+  cp "$GLB_FILE" "$ROOT_GLB"
+  GLB_HASH=$(hash_file "$ROOT_GLB")
+  printf '[%s] %s %s\n' "$(date '+%Y-%m-%d-%H-%M-%S')" "$ROOT_GLB" "$GLB_HASH" >> "$LOG_FILE"
+
+  # 3) 렌더 시간 측정
+  RENDER_START_TS=$(date +%s)
   if ! $PYTHON_BIN "$SCRIPT_DIR/complete_render.py" --glb "$GLB_FILE" --output "$SCENE_DIR"; then
     echo "✗ Rendering failed for prompt: $PROMPT" >&2
+    # 렌더 실패도 기록
+    {
+      echo "Prompt      : $PROMPT"
+      echo "RENDER      : FAILED"
+      echo "--------------------------------------------"
+    } >> "$LOG_FILE"
     FAIL=$((FAIL + 1))
     continue
   fi
+  RENDER_END_TS=$(date +%s)
+  RENDER_ELAPSED=$((RENDER_END_TS - RENDER_START_TS))
 
   TOP_VIEW_IMAGE="$SCENE_DIR/render_01_top_view.png"
   if [ ! -f "$TOP_VIEW_IMAGE" ]; then
@@ -145,56 +165,36 @@ for i in "${!PROMPTS[@]}"; do
     continue
   fi
 
-  # ✅ 루트로 복사하는 경로
-  ROOT_GLB="$TTA_ROOT/${FOLDER_NAME}.glb"
+  # 루트로 png 복사
   ROOT_IMG="$TTA_ROOT/${FOLDER_NAME}.png"
-
-  # 프롬프트 폴더 안의 glb를 루트로 복사
-  cp "$GLB_FILE" "$ROOT_GLB"
-  # 렌더 이미지도 루트로 복사
   cp "$TOP_VIEW_IMAGE" "$ROOT_IMG"
-
-  # 이제 TTA 로그는 루트에 있는 이 파일들 기준으로 찍는다
-  GLB_HASH=$(hash_file "$ROOT_GLB")
-  printf '[%s] %s %s\n' "$(date '+%Y-%m-%d-%H-%M-%S')" "$ROOT_GLB" "$GLB_HASH" >> "$LOG_FILE"
-
   IMG_HASH=$(hash_file "$ROOT_IMG")
   printf '[%s] %s %s\n' "$(date '+%Y-%m-%d-%H-%M-%S')" "$ROOT_IMG" "$IMG_HASH" >> "$LOG_FILE"
 
-  # 4) CLIP 계산 (top view 붙이기)
-  CLIP_TEXT="${PROMPT}, top view"
-  CLIP_OUTPUT=$($PYTHON_BIN "$SCRIPT_DIR/calculate_clip_similarity.py" \
-    --text "$CLIP_TEXT" \
-    --image "$ROOT_IMG" \
-    --model-name "$CLIP_MODEL_NAME" 2>&1)
+  # 전체 시간 끝
+  PROMPT_END_TS=$(date +%s)
+  PROMPT_ELAPSED=$((PROMPT_END_TS - PROMPT_START_TS))
 
-  # 출력에서 마지막 실수 하나만 뽑기
-  SIMILARITY=$(printf '%s' "$CLIP_OUTPUT" | grep -oE '[0-9]+\.[0-9]+' | tail -1)
-  if [ -z "$SIMILARITY" ]; then
-    echo "✗ Failed to parse CLIP similarity" >&2
-    FAIL=$((FAIL + 1))
-    continue
-  fi
-
-  # 로그에 붙이기
+  # TTA 로그에 시간도 붙이기
   {
-    echo "Prompt      : $CLIP_TEXT"
-    echo "CLIP        : $SIMILARITY"
+    echo "Prompt      : $PROMPT"
+    echo "Layout time : ${LAYOUT_ELAPSED}s"
+    echo "Render time : ${RENDER_ELAPSED}s"
+    echo "Total time  : ${PROMPT_ELAPSED}s"
     echo "--------------------------------------------"
   } >> "$LOG_FILE"
 
-  # 사람용 요약
+  # 사람용 시간 요약
   {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')]"
-    echo "Prompt      : $CLIP_TEXT"
-    echo "GLB         : $ROOT_GLB"
-    echo "Image       : $ROOT_IMG"
-    echo "Similarity  : $SIMILARITY"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $PROMPT"
+    echo "  layout(s): ${LAYOUT_ELAPSED}"
+    echo "  render(s): ${RENDER_ELAPSED}"
+    echo "  total(s) : ${PROMPT_ELAPSED}"
     echo
-  } >> "$CLIP_SUMMARY_FILE"
+  } >> "$TIME_SUMMARY_FILE"
 
   SUCCESS=$((SUCCESS + 1))
-  echo "✓ Completed pipeline for prompt $((i+1))/$TOTAL"
+  echo "✓ Completed pipeline for prompt $((i+1))/$TOTAL in ${PROMPT_ELAPSED}s"
   echo ""
 done
 
@@ -208,5 +208,5 @@ echo "  Failed         : $FAIL"
 echo "Outputs"
 echo "  TTA root       : $TTA_ROOT"
 echo "  Log (TTA)      : $LOG_FILE"
-echo "  CLIP summary   : $CLIP_SUMMARY_FILE"
+echo "  Time summary   : $TIME_SUMMARY_FILE"
 echo "Done."
