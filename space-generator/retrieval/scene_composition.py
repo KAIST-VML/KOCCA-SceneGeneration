@@ -1036,96 +1036,94 @@ class SceneComposer:
             print(f"    ❌ Failed to create cutter: {e}")
             return None
     
+    @staticmethod
+    def _normalize_name(name):
+        """Normalize object name: lowercase, replace underscores/hyphens with spaces, collapse whitespace"""
+        n = name.lower().strip()
+        n = re.sub(r'[_\-]', ' ', n)
+        n = re.sub(r'\s+', ' ', n)
+        return n
+
     def get_object_ids_from_clip(self, object_name):
             """Get object IDs from CLIP rerank results with flexible matching"""
-            # Remove numbers from object name for base name
-            import re
+            # Remove trailing numbers for base name (e.g., "sofa1" → "sofa")
             base_name = re.sub(r'\d+$', '', object_name).strip()
-            
-            print(f"🔍 Searching CLIP results for '{object_name}' (base: '{base_name}')")
-            
-            # First, try exact match
-            exact_file = os.path.join(self.clip_results_path, f"{object_name.lower()}.txt")
-            if os.path.exists(exact_file):
-                try:
-                    with open(exact_file, 'r') as f:
-                        ids = [line.strip() for line in f.readlines() if line.strip()]
-                        print(f"📎 Found exact match: {len(ids)} IDs for {object_name}")
-                        return ids
-                except Exception as e:
-                    print(f"❌ Error reading exact match: {e}")
-            
-            # Second, search for files containing the base name
+            normalized = self._normalize_name(base_name)
+
+            print(f"🔍 Searching CLIP results for '{object_name}' (base: '{base_name}', normalized: '{normalized}')")
+
             try:
                 clip_files = [f for f in os.listdir(self.clip_results_path) if f.endswith('.txt')]
-                
-                # Search for files that contain the base name (case-insensitive)
-                matching_files = []
-                for clip_file in clip_files:
-                    # Extract the object name from the file
-                    file_obj_name = clip_file.replace('.txt', '')
-                    
-                    # Check if base name is in the file name (as a word)
-                    if base_name.lower() in file_obj_name.lower().split():
-                        matching_files.append((clip_file, file_obj_name))
-                        print(f"  📄 Found candidate: {clip_file}")
-                
-                # If we found matches, use the first one (or the best match)
-                if matching_files:
-                    # Sort by similarity (prefer exact word match over partial)
-                    best_match = None
-                    for clip_file, file_obj_name in matching_files:
-                        # Exact word match is best
-                        if base_name.lower() == file_obj_name.lower():
-                            best_match = clip_file
-                            break
-                        # Otherwise, take the first match
-                        elif best_match is None:
-                            best_match = clip_file
-                    
-                    if best_match:
-                        file_path = os.path.join(self.clip_results_path, best_match)
-                        with open(file_path, 'r') as f:
-                            ids = [line.strip() for line in f.readlines() if line.strip()]
-                            print(f"📎 Using {best_match}: {len(ids)} IDs for {object_name}")
-                            return ids
-                
-                # Third fallback: try variations of the name
-                name_variations = [
-                    base_name.lower().replace(' ', '_'),
-                    base_name.lower().replace(' ', '-'),
-                    base_name.lower().replace('_', ' '),
-                    base_name.lower()
-                ]
-                
-                for variation in name_variations:
-                    for clip_file in clip_files:
-                        file_obj_name = clip_file.replace('.txt', '').lower()
-                        # Check if variation matches exactly
-                        if variation == file_obj_name:
-                            file_path = os.path.join(self.clip_results_path, clip_file)
-                            with open(file_path, 'r') as f:
-                                ids = [line.strip() for line in f.readlines() if line.strip()]
-                                print(f"📎 Found variation match {clip_file}: {len(ids)} IDs for {object_name}")
-                                return ids
-                
             except Exception as e:
-                print(f"❌ Error searching CLIP results: {e}")
-                import traceback
-                traceback.print_exc()
-            
+                print(f"❌ Error listing CLIP results dir: {e}")
+                return []
+
+            if not clip_files:
+                print(f"  ❌ No CLIP result files found in {self.clip_results_path}")
+                return []
+
+            # Build normalized lookup: normalized_name → filename
+            file_lookup = {}
+            for clip_file in clip_files:
+                file_obj_name = clip_file.replace('.txt', '')
+                norm_key = self._normalize_name(file_obj_name)
+                file_lookup[norm_key] = clip_file
+
+            def _read_ids(filepath):
+                with open(filepath, 'r') as f:
+                    return [line.strip() for line in f.readlines() if line.strip()]
+
+            # 1. Exact normalized match (handles underscore/space/hyphen differences)
+            if normalized in file_lookup:
+                file_path = os.path.join(self.clip_results_path, file_lookup[normalized])
+                ids = _read_ids(file_path)
+                print(f"📎 Normalized match '{file_lookup[normalized]}': {len(ids)} IDs")
+                return ids
+
+            # 2. Word-overlap match: check if all words in query appear in filename (or vice versa)
+            query_words = set(normalized.split())
+            best_match = None
+            best_score = 0
+
+            for norm_key, clip_file in file_lookup.items():
+                file_words = set(norm_key.split())
+
+                # All query words found in filename
+                if query_words and query_words.issubset(file_words):
+                    score = len(query_words) / len(file_words)  # prefer shorter filenames
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+                # All filename words found in query (filename is more specific)
+                elif file_words and file_words.issubset(query_words):
+                    score = len(file_words) / len(query_words) * 0.9  # slightly lower priority
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+                # Partial overlap: at least one meaningful word matches
+                elif query_words & file_words:
+                    overlap = len(query_words & file_words)
+                    score = overlap / max(len(query_words), len(file_words)) * 0.5
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+            if best_match and best_score > 0.3:
+                file_path = os.path.join(self.clip_results_path, best_match)
+                ids = _read_ids(file_path)
+                print(f"📎 Word-overlap match '{best_match}' (score: {best_score:.2f}): {len(ids)} IDs")
+                return ids
+
             # Debug: show available files
-            try:
-                available_files = [f for f in os.listdir(self.clip_results_path) if f.endswith('.txt')]
-                if available_files:
-                    print(f"  📂 Available CLIP files in {self.clip_results_path}:")
-                    for f in available_files[:5]:  # Show first 5 files
-                        print(f"     - {f}")
-                    if len(available_files) > 5:
-                        print(f"     ... and {len(available_files) - 5} more files")
-            except:
-                pass
-            
+            print(f"  ❌ No match found for '{object_name}'")
+            print(f"  📂 Available CLIP files ({len(clip_files)}):")
+            for f in clip_files[:8]:
+                print(f"     - {f}")
+            if len(clip_files) > 8:
+                print(f"     ... and {len(clip_files) - 8} more files")
+
             return []
     
     def find_object_in_dataset(self, object_id):
@@ -1136,17 +1134,79 @@ class SceneComposer:
                 return obj_folder
         return None
     
+    def get_object_ids_from_text_retrieval(self, object_name):
+        """Fallback: get object IDs directly from text retrieval results"""
+        base_name = re.sub(r'\d+$', '', object_name).strip()
+        normalized = self._normalize_name(base_name)
+
+        # text_retrieval 폴더 경로 추정 (clip_results와 같은 레벨)
+        text_retrieval_path = os.path.join(os.path.dirname(self.clip_results_path), "text_retrieval")
+        if not os.path.exists(text_retrieval_path):
+            return []
+
+        try:
+            txt_files = [f for f in os.listdir(text_retrieval_path) if f.endswith('_results.txt')]
+        except Exception:
+            return []
+
+        # normalized lookup
+        for txt_file in txt_files:
+            file_obj_name = txt_file.replace('_results.txt', '')
+            norm_key = self._normalize_name(file_obj_name)
+            if norm_key == normalized or normalized in norm_key.split() or norm_key in normalized.split():
+                file_path = os.path.join(text_retrieval_path, txt_file)
+                try:
+                    with open(file_path, 'r') as f:
+                        ids = [line.strip() for line in f.readlines() if line.strip()]
+                    if ids:
+                        print(f"📎 Text retrieval fallback '{txt_file}': {len(ids)} IDs for {object_name}")
+                        return ids
+                except Exception:
+                    pass
+        return []
+
+    def find_any_model_in_dataset(self):
+        """Last resort: find any loadable model from the dataset"""
+        import random
+        for dataset_path in self.dataset_paths:
+            if not os.path.exists(dataset_path):
+                continue
+            try:
+                model_dirs = [d for d in os.listdir(dataset_path)
+                              if os.path.isdir(os.path.join(dataset_path, d))]
+                random.shuffle(model_dirs)
+                for model_dir in model_dirs[:20]:
+                    obj_path = os.path.join(dataset_path, model_dir, "normalized_model.obj")
+                    if os.path.exists(obj_path):
+                        return model_dir
+            except Exception:
+                continue
+        return None
+
     def load_furniture_object(self, object_name, obj_data):
         """Load furniture object from 3D-FUTURE dataset with texture support"""
-        # Get CLIP results
+        # 1차: CLIP 결과에서 시도
         clip_ids = self.get_object_ids_from_clip(object_name)
-        
+
+        # 2차: CLIP 실패 시 텍스트 검색 결과에서 직접 시도
         if not clip_ids:
-            print(f"❌ No CLIP results for {object_name}, creating placeholder")
-            return self.create_placeholder_mesh(object_name, obj_data)
-        
-        # Try to load from first few IDs
-        for i, clip_id in enumerate(clip_ids[:3]):
+            print(f"⚠️  No CLIP results for {object_name}, trying text retrieval fallback...")
+            clip_ids = self.get_object_ids_from_text_retrieval(object_name)
+
+        # 3차: 텍스트 검색도 실패 시 데이터셋에서 아무 모델이나 찾기
+        if not clip_ids:
+            print(f"⚠️  No text retrieval results for {object_name}, searching dataset directly...")
+            fallback_id = self.find_any_model_in_dataset()
+            if fallback_id:
+                clip_ids = [fallback_id]
+                print(f"📎 Dataset fallback: using random model {fallback_id} for {object_name}")
+
+        if not clip_ids:
+            print(f"❌ No models available at all for {object_name}, skipping this object")
+            return None
+
+        # 모든 ID를 시도 (기존: 3개만 → 전체 시도)
+        for i, clip_id in enumerate(clip_ids):
             obj_folder = self.find_object_in_dataset(clip_id)
             if obj_folder:
                 obj_path = os.path.join(obj_folder, "normalized_model.obj")
@@ -1289,8 +1349,8 @@ class SceneComposer:
                         print(f"❌ Failed to load {clip_id}: {e}")
                         continue
         
-        print(f"❌ Could not load {object_name}, creating placeholder")
-        return self.create_placeholder_mesh(object_name, obj_data)
+        print(f"❌ Could not load any of {len(clip_ids)} model IDs for {object_name}, skipping this object")
+        return None
 
 
     def apply_texture_to_mesh(self, mesh, obj_folder):
