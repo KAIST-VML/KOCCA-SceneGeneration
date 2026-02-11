@@ -304,16 +304,18 @@ class SceneComposer:
         self.scene_meshes.append({
             'mesh': floor_mesh,
             'name': 'floor',
-            'color': self.background_colors['floor_color']
+            'color': self.background_colors['floor_color'],
+            'has_texture': False
         })
-        
+
         # Create walls with openings - ENHANCED
         wall_meshes = self.create_wall_meshes_enhanced(width, length, height, wall_thickness)
         for wall_mesh, wall_name in wall_meshes:
             self.scene_meshes.append({
                 'mesh': wall_mesh,
                 'name': wall_name,
-                'color': self.background_colors['wall_color']
+                'color': self.background_colors['wall_color'],
+                'has_texture': False
             })
     
     def create_floor_mesh(self, width, length):
@@ -1155,11 +1157,17 @@ class SceneComposer:
                         # Try trimesh first for better texture support
                         try:
                             mesh = trimesh.load(obj_path)
-                            
-                            # Scene 객체인 경우 mesh 추출
+
+                            # Scene 객체인 경우: 모든 서브메쉬를 합쳐서 사용
                             if hasattr(mesh, 'geometry') and len(mesh.geometry) > 0:
-                                mesh = list(mesh.geometry.values())[0]
-                            
+                                sub_meshes = list(mesh.geometry.values())
+                                if len(sub_meshes) == 1:
+                                    mesh = sub_meshes[0]
+                                else:
+                                    # 여러 서브메쉬가 있으면 모두 합침 (첫 번째만 쓰면 부품 유실)
+                                    print(f"  📦 OBJ has {len(sub_meshes)} sub-meshes, combining all")
+                                    mesh = trimesh.util.concatenate(sub_meshes)
+
                             if len(mesh.vertices) == 0:
                                 raise Exception("Empty mesh from trimesh")
                                 
@@ -1561,7 +1569,7 @@ class SceneComposer:
         position = obj_data['position']
         width = obj_data['width']
         length = obj_data['length']
-        
+
         # Object height estimates
         height_map = {
             'bed': 0.6,
@@ -1569,7 +1577,7 @@ class SceneComposer:
             'desk': 0.75,
         }
         height = height_map.get(object_name.lower(), 1.0)
-        
+
         # Create placeholder box
         mesh = trimesh.creation.box(
             extents=[width, length, height],
@@ -1577,110 +1585,102 @@ class SceneComposer:
                 position[0], position[1], height/2
             ])
         )
-        
-        print(f"📦 Created placeholder for {object_name}")
+
+        # placeholder임을 알 수 있도록 연분홍색 적용
+        mesh.visual.face_colors = [230, 150, 150, 255]
+
+        print(f"📦 Created placeholder for {object_name} (no matching 3D model found)")
         return mesh
     
     def load_all_furniture(self):
         """Load all furniture objects from layout"""
-        furniture_objects = [name for name in self.layout_data['objects'].keys() 
+        furniture_objects = [name for name in self.layout_data['objects'].keys()
                            if 'door' not in name.lower() and 'window' not in name.lower()]
-        
+
         print(f"\n🪑 Loading furniture: {furniture_objects}")
-        
+
         for obj_name in furniture_objects:
             if obj_name in self.layout_data['objects']:
                 try:
                     mesh = self.load_furniture_object(obj_name, self.layout_data['objects'][obj_name])
                     if mesh is not None:
+                        # 텍스처가 이미 적용되었는지 확인
+                        has_texture = (hasattr(mesh, 'visual') and
+                                      hasattr(mesh.visual, 'kind') and
+                                      mesh.visual.kind == 'texture')
                         self.scene_meshes.append({
                             'mesh': mesh,
                             'name': f"{obj_name}_furniture",
-                            'color': (0.7, 0.7, 0.7)  # Default furniture color
+                            'color': (0.7, 0.7, 0.7),  # Default furniture color
+                            'has_texture': has_texture
                         })
                 except Exception as e:
                     print(f"❌ Error loading {obj_name}: {e}")
     
-    def combine_scene_meshes(self):
-        """Combine all scene meshes into a single mesh"""
-        if not self.scene_meshes:
-            print("❌ No meshes to combine")
-            return None
-        
-        print(f"🔗 Combining {len(self.scene_meshes)} meshes...")
-        
-        combined_meshes = []
-        mesh_info = []
-        
-        for scene_item in self.scene_meshes:
-            mesh = scene_item['mesh']
-            color = scene_item['color']
-            name = scene_item['name']
-            
-            # Validate mesh before adding
-            if mesh is None or len(mesh.vertices) == 0:
-                print(f"⚠️  Skipping empty mesh: {name}")
-                continue
-            
-            # Apply color to mesh
-            if hasattr(mesh, 'visual'):
-                # Convert color to RGBA (0-255)
-                rgba_color = [int(c * 255) for c in color] + [255]
-                mesh.visual.face_colors = rgba_color
-            
-            combined_meshes.append(mesh)
-            mesh_info.append(f"{name}: {len(mesh.vertices)} vertices")
-        
-        if not combined_meshes:
-            print("❌ No valid meshes to combine")
-            return None
-        
-        # Combine all meshes
-        try:
-            combined_mesh = trimesh.util.concatenate(combined_meshes)
-            print("✅ Successfully combined all meshes:")
-            for info in mesh_info:
-                print(f"   - {info}")
-            print(f"   Total: {len(combined_mesh.vertices)} vertices, {len(combined_mesh.faces)} faces")
-            return combined_mesh
-        except Exception as e:
-            print(f"❌ Error combining meshes: {e}")
-            return None
-    
     def save_scene_as_glb(self, output_filename="scene.glb"):
-        """Save the complete scene as GLB file"""
-        combined_mesh = self.combine_scene_meshes()
-        
-        if combined_mesh is None:
-            print("❌ No combined mesh to save")
+        """Save the complete scene as GLB file with separate meshes per object"""
+        if not self.scene_meshes:
+            print("❌ No meshes to save")
             return False
-        
+
         output_path = os.path.join(self.output_path, output_filename)
-        
+
         try:
-            # Ensure the mesh is valid before export
-            # if not combined_mesh.is_valid:
-            #     print("⚠️  Fixing mesh before export...")
-            #     combined_mesh.fix_normals()
-            #     combined_mesh.remove_duplicate_faces()
-            #     combined_mesh.remove_degenerate_faces()
-            
-            # Export as GLB
-            combined_mesh.export(output_path)
-            
-            # Verify file was created and get size
+            scene = trimesh.Scene()
+
+            print(f"🔗 Building scene with {len(self.scene_meshes)} separate meshes...")
+
+            for scene_item in self.scene_meshes:
+                mesh = scene_item['mesh']
+                color = scene_item['color']
+                name = scene_item['name']
+                has_texture = scene_item.get('has_texture', False)
+
+                # 빈 메쉬 건너뛰기
+                if mesh is None or len(mesh.vertices) == 0:
+                    print(f"  ⚠️  Skipping empty mesh: {name}")
+                    continue
+
+                # 텍스처가 없는 메쉬에만 기본 색상 적용 (텍스처 덮어쓰기 방지)
+                if not has_texture:
+                    if hasattr(mesh, 'visual'):
+                        try:
+                            if len(color) == 3:
+                                rgba_color = [int(c * 255) for c in color] + [255]
+                            else:
+                                rgba_color = [int(c * 255) if c <= 1.0 else int(c) for c in color]
+                            mesh.visual.face_colors = rgba_color
+                            rgb_str = f"RGB({rgba_color[0]}, {rgba_color[1]}, {rgba_color[2]})"
+                            print(f"  🎨 Applied default color to {name}: {rgb_str}")
+                        except Exception as color_error:
+                            print(f"  ⚠️  Color application failed for {name}: {color_error}")
+                else:
+                    print(f"  🖼️  Keeping existing texture for {name}")
+
+                # 각 메쉬를 개별 노드로 Scene에 추가
+                scene.add_geometry(mesh, node_name=name, geom_name=name)
+                print(f"  ✅ Added '{name}': {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+
+            if len(scene.geometry) == 0:
+                print("❌ No valid meshes to save")
+                return False
+
+            # GLB로 내보내기
+            scene.export(output_path)
+
+            # 파일 검증
             if os.path.exists(output_path):
-                file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+                file_size = os.path.getsize(output_path) / (1024 * 1024)
                 print(f"💾 Scene saved as GLB: {output_path}")
                 print(f"   File size: {file_size:.2f} MB")
-                
-                # Also save summary
+                print(f"   Separate meshes: {len(scene.geometry)}")
+
                 self.save_scene_summary()
                 return True
             else:
                 print(f"❌ Failed to create output file: {output_path}")
                 return False
-                
+
         except Exception as e:
             print(f"❌ Error saving GLB: {e}")
             import traceback
@@ -1766,65 +1766,6 @@ class SceneComposer:
             print(f"   {icon} {item['name']}{color_info}")
 
 
-    # combine_scene_meshes 함수 수정 (색상 적용 개선)
-    def combine_scene_meshes(self):
-        """Combine all scene meshes into a single mesh with proper colors"""
-        if not self.scene_meshes:
-            print("❌ No meshes to combine")
-            return None
-        
-        print(f"🔗 Combining {len(self.scene_meshes)} meshes with colors...")
-        
-        combined_meshes = []
-        mesh_info = []
-        
-        for scene_item in self.scene_meshes:
-            mesh = scene_item['mesh']
-            color = scene_item['color']
-            name = scene_item['name']
-            
-            # Validate mesh before adding
-            if mesh is None or len(mesh.vertices) == 0:
-                print(f"⚠️  Skipping empty mesh: {name}")
-                continue
-            
-            # Apply color to mesh (개선된 색상 적용)
-            if hasattr(mesh, 'visual'):
-                try:
-                    # Convert color to RGBA (0-255)
-                    if len(color) == 3:  # RGB
-                        rgba_color = [int(c * 255) for c in color] + [255]
-                    else:  # Already RGBA
-                        rgba_color = [int(c * 255) if c <= 1.0 else int(c) for c in color]
-                    
-                    # 색상 적용
-                    mesh.visual.face_colors = rgba_color
-                    
-                    # 색상 정보 출력
-                    rgb_str = f"RGB({rgba_color[0]}, {rgba_color[1]}, {rgba_color[2]})"
-                    print(f"   🎨 Applied color to {name}: {rgb_str}")
-                    
-                except Exception as color_error:
-                    print(f"   ⚠️  Color application failed for {name}: {color_error}")
-            
-            combined_meshes.append(mesh)
-            mesh_info.append(f"{name}: {len(mesh.vertices)} vertices")
-        
-        if not combined_meshes:
-            print("❌ No valid meshes to combine")
-            return None
-        
-        # Combine all meshes
-        try:
-            combined_mesh = trimesh.util.concatenate(combined_meshes)
-            print("✅ Successfully combined all meshes:")
-            for info in mesh_info:
-                print(f"   - {info}")
-            print(f"   Total: {len(combined_mesh.vertices)} vertices, {len(combined_mesh.faces)} faces")
-            return combined_mesh
-        except Exception as e:
-            print(f"❌ Error combining meshes: {e}")
-            return None
 def main():
     """Main execution function"""
     import argparse
