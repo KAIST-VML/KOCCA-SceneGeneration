@@ -52,13 +52,20 @@ def create_simple_prompt(object_name, style_line, color_line):
     prompt = f"{object_name.strip()} {' '.join(keywords)}".strip()
     return prompt[:50]
 
+def _normalize_object_name(name):
+    """파이프라인 전체에서 사용하는 통일된 이름 정규화"""
+    n = name.lower().strip()
+    n = re.sub(r'[^a-z0-9\s]', ' ', n)  # 알파벳/숫자/공백만 유지
+    n = re.sub(r'\s+', ' ', n).strip()   # 여러 공백을 하나로
+    return n
+
 def parse_numbered_blocks(text):
     """
     숫자. **이름** 으로 시작하는 블록을 모두 분리하고 이름 정리
     ex) 1. **Sofa:** ... ~ 2. **TV Stand** ... 형태
     """
     import re
-    
+
     pattern = re.compile(
         r'^\s*(\d+)[\.\)\-:\s]+\*\*([^*]+)\*\*[\s\S]*?(?=^\s*\d+[\.\)\-:\s]+\*\*|$\Z)',
         re.MULTILINE
@@ -67,12 +74,10 @@ def parse_numbered_blocks(text):
     for match in pattern.finditer(text):
         item_number = match.group(1)
         object_name = match.group(2).strip()
-        
-        # 이름 정리: 콜론과 특수문자 제거, 소문자로 변환
-        clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', object_name)  # 특수문자 제거
-        clean_name = re.sub(r'\s+', ' ', clean_name)  # 여러 공백을 하나로
-        clean_name = clean_name.strip().lower()  # 앞뒤 공백 제거 후 소문자
-        
+
+        # 파이프라인 통일 정규화 사용
+        clean_name = _normalize_object_name(object_name)
+
         block = match.group(0).strip()
         blocks.append((clean_name, block))
     return blocks
@@ -102,7 +107,7 @@ def clip_rerank_for_all_objects(results_by_object, query_text, embedding_dict, d
     
     for object_name, object_block in items:
         obj_start = time.time()
-        obj_key = object_name.strip().lower()
+        obj_key = _normalize_object_name(object_name)
         
         print(f"\n🔍 처리 중: {object_name.upper()}")
         
@@ -163,26 +168,30 @@ def load_candidate_ids_from_folder(folder_path):
     if not os.path.exists(folder_path):
         print(f"❌ 폴더가 존재하지 않습니다: {folder_path}")
         return {}
-        
+
     candidates_by_object = {}
     for filename in os.listdir(folder_path):
         if not filename.endswith("_results.txt"):
             continue
-        object_name = filename.replace("_results.txt", "").lower()
+        raw_name = filename.replace("_results.txt", "")
+        # 파이프라인 통일 정규화 사용
+        object_name = _normalize_object_name(raw_name)
         path = os.path.join(folder_path, filename)
         with open(path, "r", encoding="utf-8") as f:
             ids = [line.strip() for line in f if line.strip()]
         candidates_by_object[object_name] = ids
         print(f"📂 {object_name}: {len(ids)}개 후보 로드됨")
-        
+
     return candidates_by_object
 
 def save_clip_results(final_results, output_dir):
     """CLIP 결과를 파일로 저장"""
     os.makedirs(output_dir, exist_ok=True)
-    
+
     for object_name, items in final_results.items():
-        filename = f"{object_name.lower()}.txt"
+        # 파이프라인 통일 정규화 사용
+        normalized_name = _normalize_object_name(object_name)
+        filename = f"{normalized_name}.txt"
         filepath = os.path.join(output_dir, filename)
         
         with open(filepath, 'w', encoding='utf-8') as f:

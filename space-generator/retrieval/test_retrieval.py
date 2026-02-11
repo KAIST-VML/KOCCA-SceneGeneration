@@ -819,13 +819,20 @@ class DatabaseLoader:
         print(f"✅ 중복 제거 완료: {duplicate_count}개 중복 항목 제거됨")
         return database
 
+def _normalize_object_name(name):
+    """파이프라인 전체에서 사용하는 통일된 이름 정규화"""
+    n = name.lower().strip()
+    n = re.sub(r'[^a-z0-9\s]', ' ', n)  # 알파벳/숫자/공백만 유지
+    n = re.sub(r'\s+', ' ', n).strip()   # 여러 공백을 하나로
+    return n
+
 def save_results_to_files(results_by_object: Dict, output_dir: str = "./search_results"):
     """검색 결과를 object별로 텍스트 파일에 저장 (ID만)"""
     os.makedirs(output_dir, exist_ok=True)
-    
+
     for object_name, results in results_by_object.items():
-        # 파일명에서 특수문자 제거 또는 안전하게 변환
-        safe_name = object_name.replace('/', '_').replace('\\', '_').replace('(', '').replace(')', '').replace(':', '_')
+        # 정규화된 이름으로 파일명 생성 (파이프라인 전체 일관성)
+        safe_name = _normalize_object_name(object_name)
         filename = f"{safe_name}_results.txt"
         filepath = os.path.join(output_dir, filename)
         
