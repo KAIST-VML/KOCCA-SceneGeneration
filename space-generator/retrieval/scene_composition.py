@@ -304,16 +304,18 @@ class SceneComposer:
         self.scene_meshes.append({
             'mesh': floor_mesh,
             'name': 'floor',
-            'color': self.background_colors['floor_color']
+            'color': self.background_colors['floor_color'],
+            'has_texture': False
         })
-        
+
         # Create walls with openings - ENHANCED
         wall_meshes = self.create_wall_meshes_enhanced(width, length, height, wall_thickness)
         for wall_mesh, wall_name in wall_meshes:
             self.scene_meshes.append({
                 'mesh': wall_mesh,
                 'name': wall_name,
-                'color': self.background_colors['wall_color']
+                'color': self.background_colors['wall_color'],
+                'has_texture': False
             })
     
     def create_floor_mesh(self, width, length):
@@ -1034,96 +1036,94 @@ class SceneComposer:
             print(f"    ❌ Failed to create cutter: {e}")
             return None
     
+    @staticmethod
+    def _normalize_name(name):
+        """Normalize object name: lowercase, replace underscores/hyphens with spaces, collapse whitespace"""
+        n = name.lower().strip()
+        n = re.sub(r'[_\-]', ' ', n)
+        n = re.sub(r'\s+', ' ', n)
+        return n
+
     def get_object_ids_from_clip(self, object_name):
             """Get object IDs from CLIP rerank results with flexible matching"""
-            # Remove numbers from object name for base name
-            import re
+            # Remove trailing numbers for base name (e.g., "sofa1" → "sofa")
             base_name = re.sub(r'\d+$', '', object_name).strip()
-            
-            print(f"🔍 Searching CLIP results for '{object_name}' (base: '{base_name}')")
-            
-            # First, try exact match
-            exact_file = os.path.join(self.clip_results_path, f"{object_name.lower()}.txt")
-            if os.path.exists(exact_file):
-                try:
-                    with open(exact_file, 'r') as f:
-                        ids = [line.strip() for line in f.readlines() if line.strip()]
-                        print(f"📎 Found exact match: {len(ids)} IDs for {object_name}")
-                        return ids
-                except Exception as e:
-                    print(f"❌ Error reading exact match: {e}")
-            
-            # Second, search for files containing the base name
+            normalized = self._normalize_name(base_name)
+
+            print(f"🔍 Searching CLIP results for '{object_name}' (base: '{base_name}', normalized: '{normalized}')")
+
             try:
                 clip_files = [f for f in os.listdir(self.clip_results_path) if f.endswith('.txt')]
-                
-                # Search for files that contain the base name (case-insensitive)
-                matching_files = []
-                for clip_file in clip_files:
-                    # Extract the object name from the file
-                    file_obj_name = clip_file.replace('.txt', '')
-                    
-                    # Check if base name is in the file name (as a word)
-                    if base_name.lower() in file_obj_name.lower().split():
-                        matching_files.append((clip_file, file_obj_name))
-                        print(f"  📄 Found candidate: {clip_file}")
-                
-                # If we found matches, use the first one (or the best match)
-                if matching_files:
-                    # Sort by similarity (prefer exact word match over partial)
-                    best_match = None
-                    for clip_file, file_obj_name in matching_files:
-                        # Exact word match is best
-                        if base_name.lower() == file_obj_name.lower():
-                            best_match = clip_file
-                            break
-                        # Otherwise, take the first match
-                        elif best_match is None:
-                            best_match = clip_file
-                    
-                    if best_match:
-                        file_path = os.path.join(self.clip_results_path, best_match)
-                        with open(file_path, 'r') as f:
-                            ids = [line.strip() for line in f.readlines() if line.strip()]
-                            print(f"📎 Using {best_match}: {len(ids)} IDs for {object_name}")
-                            return ids
-                
-                # Third fallback: try variations of the name
-                name_variations = [
-                    base_name.lower().replace(' ', '_'),
-                    base_name.lower().replace(' ', '-'),
-                    base_name.lower().replace('_', ' '),
-                    base_name.lower()
-                ]
-                
-                for variation in name_variations:
-                    for clip_file in clip_files:
-                        file_obj_name = clip_file.replace('.txt', '').lower()
-                        # Check if variation matches exactly
-                        if variation == file_obj_name:
-                            file_path = os.path.join(self.clip_results_path, clip_file)
-                            with open(file_path, 'r') as f:
-                                ids = [line.strip() for line in f.readlines() if line.strip()]
-                                print(f"📎 Found variation match {clip_file}: {len(ids)} IDs for {object_name}")
-                                return ids
-                
             except Exception as e:
-                print(f"❌ Error searching CLIP results: {e}")
-                import traceback
-                traceback.print_exc()
-            
+                print(f"❌ Error listing CLIP results dir: {e}")
+                return []
+
+            if not clip_files:
+                print(f"  ❌ No CLIP result files found in {self.clip_results_path}")
+                return []
+
+            # Build normalized lookup: normalized_name → filename
+            file_lookup = {}
+            for clip_file in clip_files:
+                file_obj_name = clip_file.replace('.txt', '')
+                norm_key = self._normalize_name(file_obj_name)
+                file_lookup[norm_key] = clip_file
+
+            def _read_ids(filepath):
+                with open(filepath, 'r') as f:
+                    return [line.strip() for line in f.readlines() if line.strip()]
+
+            # 1. Exact normalized match (handles underscore/space/hyphen differences)
+            if normalized in file_lookup:
+                file_path = os.path.join(self.clip_results_path, file_lookup[normalized])
+                ids = _read_ids(file_path)
+                print(f"📎 Normalized match '{file_lookup[normalized]}': {len(ids)} IDs")
+                return ids
+
+            # 2. Word-overlap match: check if all words in query appear in filename (or vice versa)
+            query_words = set(normalized.split())
+            best_match = None
+            best_score = 0
+
+            for norm_key, clip_file in file_lookup.items():
+                file_words = set(norm_key.split())
+
+                # All query words found in filename
+                if query_words and query_words.issubset(file_words):
+                    score = len(query_words) / len(file_words)  # prefer shorter filenames
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+                # All filename words found in query (filename is more specific)
+                elif file_words and file_words.issubset(query_words):
+                    score = len(file_words) / len(query_words) * 0.9  # slightly lower priority
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+                # Partial overlap: at least one meaningful word matches
+                elif query_words & file_words:
+                    overlap = len(query_words & file_words)
+                    score = overlap / max(len(query_words), len(file_words)) * 0.5
+                    if score > best_score:
+                        best_score = score
+                        best_match = clip_file
+
+            if best_match and best_score > 0.3:
+                file_path = os.path.join(self.clip_results_path, best_match)
+                ids = _read_ids(file_path)
+                print(f"📎 Word-overlap match '{best_match}' (score: {best_score:.2f}): {len(ids)} IDs")
+                return ids
+
             # Debug: show available files
-            try:
-                available_files = [f for f in os.listdir(self.clip_results_path) if f.endswith('.txt')]
-                if available_files:
-                    print(f"  📂 Available CLIP files in {self.clip_results_path}:")
-                    for f in available_files[:5]:  # Show first 5 files
-                        print(f"     - {f}")
-                    if len(available_files) > 5:
-                        print(f"     ... and {len(available_files) - 5} more files")
-            except:
-                pass
-            
+            print(f"  ❌ No match found for '{object_name}'")
+            print(f"  📂 Available CLIP files ({len(clip_files)}):")
+            for f in clip_files[:8]:
+                print(f"     - {f}")
+            if len(clip_files) > 8:
+                print(f"     ... and {len(clip_files) - 8} more files")
+
             return []
     
     def find_object_in_dataset(self, object_id):
@@ -1134,17 +1134,79 @@ class SceneComposer:
                 return obj_folder
         return None
     
+    def get_object_ids_from_text_retrieval(self, object_name):
+        """Fallback: get object IDs directly from text retrieval results"""
+        base_name = re.sub(r'\d+$', '', object_name).strip()
+        normalized = self._normalize_name(base_name)
+
+        # text_retrieval 폴더 경로 추정 (clip_results와 같은 레벨)
+        text_retrieval_path = os.path.join(os.path.dirname(self.clip_results_path), "text_retrieval")
+        if not os.path.exists(text_retrieval_path):
+            return []
+
+        try:
+            txt_files = [f for f in os.listdir(text_retrieval_path) if f.endswith('_results.txt')]
+        except Exception:
+            return []
+
+        # normalized lookup
+        for txt_file in txt_files:
+            file_obj_name = txt_file.replace('_results.txt', '')
+            norm_key = self._normalize_name(file_obj_name)
+            if norm_key == normalized or normalized in norm_key.split() or norm_key in normalized.split():
+                file_path = os.path.join(text_retrieval_path, txt_file)
+                try:
+                    with open(file_path, 'r') as f:
+                        ids = [line.strip() for line in f.readlines() if line.strip()]
+                    if ids:
+                        print(f"📎 Text retrieval fallback '{txt_file}': {len(ids)} IDs for {object_name}")
+                        return ids
+                except Exception:
+                    pass
+        return []
+
+    def find_any_model_in_dataset(self):
+        """Last resort: find any loadable model from the dataset"""
+        import random
+        for dataset_path in self.dataset_paths:
+            if not os.path.exists(dataset_path):
+                continue
+            try:
+                model_dirs = [d for d in os.listdir(dataset_path)
+                              if os.path.isdir(os.path.join(dataset_path, d))]
+                random.shuffle(model_dirs)
+                for model_dir in model_dirs[:20]:
+                    obj_path = os.path.join(dataset_path, model_dir, "normalized_model.obj")
+                    if os.path.exists(obj_path):
+                        return model_dir
+            except Exception:
+                continue
+        return None
+
     def load_furniture_object(self, object_name, obj_data):
         """Load furniture object from 3D-FUTURE dataset with texture support"""
-        # Get CLIP results
+        # 1차: CLIP 결과에서 시도
         clip_ids = self.get_object_ids_from_clip(object_name)
-        
+
+        # 2차: CLIP 실패 시 텍스트 검색 결과에서 직접 시도
         if not clip_ids:
-            print(f"❌ No CLIP results for {object_name}, creating placeholder")
-            return self.create_placeholder_mesh(object_name, obj_data)
-        
-        # Try to load from first few IDs
-        for i, clip_id in enumerate(clip_ids[:3]):
+            print(f"⚠️  No CLIP results for {object_name}, trying text retrieval fallback...")
+            clip_ids = self.get_object_ids_from_text_retrieval(object_name)
+
+        # 3차: 텍스트 검색도 실패 시 데이터셋에서 아무 모델이나 찾기
+        if not clip_ids:
+            print(f"⚠️  No text retrieval results for {object_name}, searching dataset directly...")
+            fallback_id = self.find_any_model_in_dataset()
+            if fallback_id:
+                clip_ids = [fallback_id]
+                print(f"📎 Dataset fallback: using random model {fallback_id} for {object_name}")
+
+        if not clip_ids:
+            print(f"❌ No models available at all for {object_name}, skipping this object")
+            return None
+
+        # 모든 ID를 시도 (기존: 3개만 → 전체 시도)
+        for i, clip_id in enumerate(clip_ids):
             obj_folder = self.find_object_in_dataset(clip_id)
             if obj_folder:
                 obj_path = os.path.join(obj_folder, "normalized_model.obj")
@@ -1155,11 +1217,17 @@ class SceneComposer:
                         # Try trimesh first for better texture support
                         try:
                             mesh = trimesh.load(obj_path)
-                            
-                            # Scene 객체인 경우 mesh 추출
+
+                            # Scene 객체인 경우: 모든 서브메쉬를 합쳐서 사용
                             if hasattr(mesh, 'geometry') and len(mesh.geometry) > 0:
-                                mesh = list(mesh.geometry.values())[0]
-                            
+                                sub_meshes = list(mesh.geometry.values())
+                                if len(sub_meshes) == 1:
+                                    mesh = sub_meshes[0]
+                                else:
+                                    # 여러 서브메쉬가 있으면 모두 합침 (첫 번째만 쓰면 부품 유실)
+                                    print(f"  📦 OBJ has {len(sub_meshes)} sub-meshes, combining all")
+                                    mesh = trimesh.util.concatenate(sub_meshes)
+
                             if len(mesh.vertices) == 0:
                                 raise Exception("Empty mesh from trimesh")
                                 
@@ -1281,8 +1349,8 @@ class SceneComposer:
                         print(f"❌ Failed to load {clip_id}: {e}")
                         continue
         
-        print(f"❌ Could not load {object_name}, creating placeholder")
-        return self.create_placeholder_mesh(object_name, obj_data)
+        print(f"❌ Could not load any of {len(clip_ids)} model IDs for {object_name}, skipping this object")
+        return None
 
 
     def apply_texture_to_mesh(self, mesh, obj_folder):
@@ -1561,7 +1629,7 @@ class SceneComposer:
         position = obj_data['position']
         width = obj_data['width']
         length = obj_data['length']
-        
+
         # Object height estimates
         height_map = {
             'bed': 0.6,
@@ -1569,7 +1637,7 @@ class SceneComposer:
             'desk': 0.75,
         }
         height = height_map.get(object_name.lower(), 1.0)
-        
+
         # Create placeholder box
         mesh = trimesh.creation.box(
             extents=[width, length, height],
@@ -1577,110 +1645,102 @@ class SceneComposer:
                 position[0], position[1], height/2
             ])
         )
-        
-        print(f"📦 Created placeholder for {object_name}")
+
+        # placeholder임을 알 수 있도록 연분홍색 적용
+        mesh.visual.face_colors = [230, 150, 150, 255]
+
+        print(f"📦 Created placeholder for {object_name} (no matching 3D model found)")
         return mesh
     
     def load_all_furniture(self):
         """Load all furniture objects from layout"""
-        furniture_objects = [name for name in self.layout_data['objects'].keys() 
+        furniture_objects = [name for name in self.layout_data['objects'].keys()
                            if 'door' not in name.lower() and 'window' not in name.lower()]
-        
+
         print(f"\n🪑 Loading furniture: {furniture_objects}")
-        
+
         for obj_name in furniture_objects:
             if obj_name in self.layout_data['objects']:
                 try:
                     mesh = self.load_furniture_object(obj_name, self.layout_data['objects'][obj_name])
                     if mesh is not None:
+                        # 텍스처가 이미 적용되었는지 확인
+                        has_texture = (hasattr(mesh, 'visual') and
+                                      hasattr(mesh.visual, 'kind') and
+                                      mesh.visual.kind == 'texture')
                         self.scene_meshes.append({
                             'mesh': mesh,
                             'name': f"{obj_name}_furniture",
-                            'color': (0.7, 0.7, 0.7)  # Default furniture color
+                            'color': (0.7, 0.7, 0.7),  # Default furniture color
+                            'has_texture': has_texture
                         })
                 except Exception as e:
                     print(f"❌ Error loading {obj_name}: {e}")
     
-    def combine_scene_meshes(self):
-        """Combine all scene meshes into a single mesh"""
-        if not self.scene_meshes:
-            print("❌ No meshes to combine")
-            return None
-        
-        print(f"🔗 Combining {len(self.scene_meshes)} meshes...")
-        
-        combined_meshes = []
-        mesh_info = []
-        
-        for scene_item in self.scene_meshes:
-            mesh = scene_item['mesh']
-            color = scene_item['color']
-            name = scene_item['name']
-            
-            # Validate mesh before adding
-            if mesh is None or len(mesh.vertices) == 0:
-                print(f"⚠️  Skipping empty mesh: {name}")
-                continue
-            
-            # Apply color to mesh
-            if hasattr(mesh, 'visual'):
-                # Convert color to RGBA (0-255)
-                rgba_color = [int(c * 255) for c in color] + [255]
-                mesh.visual.face_colors = rgba_color
-            
-            combined_meshes.append(mesh)
-            mesh_info.append(f"{name}: {len(mesh.vertices)} vertices")
-        
-        if not combined_meshes:
-            print("❌ No valid meshes to combine")
-            return None
-        
-        # Combine all meshes
-        try:
-            combined_mesh = trimesh.util.concatenate(combined_meshes)
-            print("✅ Successfully combined all meshes:")
-            for info in mesh_info:
-                print(f"   - {info}")
-            print(f"   Total: {len(combined_mesh.vertices)} vertices, {len(combined_mesh.faces)} faces")
-            return combined_mesh
-        except Exception as e:
-            print(f"❌ Error combining meshes: {e}")
-            return None
-    
     def save_scene_as_glb(self, output_filename="scene.glb"):
-        """Save the complete scene as GLB file"""
-        combined_mesh = self.combine_scene_meshes()
-        
-        if combined_mesh is None:
-            print("❌ No combined mesh to save")
+        """Save the complete scene as GLB file with separate meshes per object"""
+        if not self.scene_meshes:
+            print("❌ No meshes to save")
             return False
-        
+
         output_path = os.path.join(self.output_path, output_filename)
-        
+
         try:
-            # Ensure the mesh is valid before export
-            # if not combined_mesh.is_valid:
-            #     print("⚠️  Fixing mesh before export...")
-            #     combined_mesh.fix_normals()
-            #     combined_mesh.remove_duplicate_faces()
-            #     combined_mesh.remove_degenerate_faces()
-            
-            # Export as GLB
-            combined_mesh.export(output_path)
-            
-            # Verify file was created and get size
+            scene = trimesh.Scene()
+
+            print(f"🔗 Building scene with {len(self.scene_meshes)} separate meshes...")
+
+            for scene_item in self.scene_meshes:
+                mesh = scene_item['mesh']
+                color = scene_item['color']
+                name = scene_item['name']
+                has_texture = scene_item.get('has_texture', False)
+
+                # 빈 메쉬 건너뛰기
+                if mesh is None or len(mesh.vertices) == 0:
+                    print(f"  ⚠️  Skipping empty mesh: {name}")
+                    continue
+
+                # 텍스처가 없는 메쉬에만 기본 색상 적용 (텍스처 덮어쓰기 방지)
+                if not has_texture:
+                    if hasattr(mesh, 'visual'):
+                        try:
+                            if len(color) == 3:
+                                rgba_color = [int(c * 255) for c in color] + [255]
+                            else:
+                                rgba_color = [int(c * 255) if c <= 1.0 else int(c) for c in color]
+                            mesh.visual.face_colors = rgba_color
+                            rgb_str = f"RGB({rgba_color[0]}, {rgba_color[1]}, {rgba_color[2]})"
+                            print(f"  🎨 Applied default color to {name}: {rgb_str}")
+                        except Exception as color_error:
+                            print(f"  ⚠️  Color application failed for {name}: {color_error}")
+                else:
+                    print(f"  🖼️  Keeping existing texture for {name}")
+
+                # 각 메쉬를 개별 노드로 Scene에 추가
+                scene.add_geometry(mesh, node_name=name, geom_name=name)
+                print(f"  ✅ Added '{name}': {len(mesh.vertices)} vertices, {len(mesh.faces)} faces")
+
+            if len(scene.geometry) == 0:
+                print("❌ No valid meshes to save")
+                return False
+
+            # GLB로 내보내기
+            scene.export(output_path)
+
+            # 파일 검증
             if os.path.exists(output_path):
-                file_size = os.path.getsize(output_path) / (1024 * 1024)  # MB
+                file_size = os.path.getsize(output_path) / (1024 * 1024)
                 print(f"💾 Scene saved as GLB: {output_path}")
                 print(f"   File size: {file_size:.2f} MB")
-                
-                # Also save summary
+                print(f"   Separate meshes: {len(scene.geometry)}")
+
                 self.save_scene_summary()
                 return True
             else:
                 print(f"❌ Failed to create output file: {output_path}")
                 return False
-                
+
         except Exception as e:
             print(f"❌ Error saving GLB: {e}")
             import traceback
@@ -1766,65 +1826,6 @@ class SceneComposer:
             print(f"   {icon} {item['name']}{color_info}")
 
 
-    # combine_scene_meshes 함수 수정 (색상 적용 개선)
-    def combine_scene_meshes(self):
-        """Combine all scene meshes into a single mesh with proper colors"""
-        if not self.scene_meshes:
-            print("❌ No meshes to combine")
-            return None
-        
-        print(f"🔗 Combining {len(self.scene_meshes)} meshes with colors...")
-        
-        combined_meshes = []
-        mesh_info = []
-        
-        for scene_item in self.scene_meshes:
-            mesh = scene_item['mesh']
-            color = scene_item['color']
-            name = scene_item['name']
-            
-            # Validate mesh before adding
-            if mesh is None or len(mesh.vertices) == 0:
-                print(f"⚠️  Skipping empty mesh: {name}")
-                continue
-            
-            # Apply color to mesh (개선된 색상 적용)
-            if hasattr(mesh, 'visual'):
-                try:
-                    # Convert color to RGBA (0-255)
-                    if len(color) == 3:  # RGB
-                        rgba_color = [int(c * 255) for c in color] + [255]
-                    else:  # Already RGBA
-                        rgba_color = [int(c * 255) if c <= 1.0 else int(c) for c in color]
-                    
-                    # 색상 적용
-                    mesh.visual.face_colors = rgba_color
-                    
-                    # 색상 정보 출력
-                    rgb_str = f"RGB({rgba_color[0]}, {rgba_color[1]}, {rgba_color[2]})"
-                    print(f"   🎨 Applied color to {name}: {rgb_str}")
-                    
-                except Exception as color_error:
-                    print(f"   ⚠️  Color application failed for {name}: {color_error}")
-            
-            combined_meshes.append(mesh)
-            mesh_info.append(f"{name}: {len(mesh.vertices)} vertices")
-        
-        if not combined_meshes:
-            print("❌ No valid meshes to combine")
-            return None
-        
-        # Combine all meshes
-        try:
-            combined_mesh = trimesh.util.concatenate(combined_meshes)
-            print("✅ Successfully combined all meshes:")
-            for info in mesh_info:
-                print(f"   - {info}")
-            print(f"   Total: {len(combined_mesh.vertices)} vertices, {len(combined_mesh.faces)} faces")
-            return combined_mesh
-        except Exception as e:
-            print(f"❌ Error combining meshes: {e}")
-            return None
 def main():
     """Main execution function"""
     import argparse
