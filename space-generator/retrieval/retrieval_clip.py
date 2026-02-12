@@ -114,10 +114,11 @@ def clip_rerank_for_all_objects(results_by_object, query_text, embedding_dict, d
         # 후보 ID 리스트 가져오기
         id_list = results_by_object.get(obj_key, [])
         if not id_list:
-                print(f"❌ {obj_key} 후보 없음 → 전체 DB에서 검색 시도")
-                candidate_items = [(item, 0) for item in database]
-        else:
-            candidate_items = [(db_by_id[mid], 0) for mid in id_list if mid in db_by_id]
+            print(f"⏭️ {obj_key} text retrieval 결과 없음 → 건너뜀 (없는 객체 처리)")
+            final_selection[object_name] = []
+            continue
+
+        candidate_items = [(db_by_id[mid], 0) for mid in id_list if mid in db_by_id]
 
         if not candidate_items:
             print(f"❌ {obj_key} 매칭 아이디 없음")

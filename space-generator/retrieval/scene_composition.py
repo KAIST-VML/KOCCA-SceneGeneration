@@ -1165,24 +1165,6 @@ class SceneComposer:
                     pass
         return []
 
-    def find_any_model_in_dataset(self):
-        """Last resort: find any loadable model from the dataset"""
-        import random
-        for dataset_path in self.dataset_paths:
-            if not os.path.exists(dataset_path):
-                continue
-            try:
-                model_dirs = [d for d in os.listdir(dataset_path)
-                              if os.path.isdir(os.path.join(dataset_path, d))]
-                random.shuffle(model_dirs)
-                for model_dir in model_dirs[:20]:
-                    obj_path = os.path.join(dataset_path, model_dir, "normalized_model.obj")
-                    if os.path.exists(obj_path):
-                        return model_dir
-            except Exception:
-                continue
-        return None
-
     def load_furniture_object(self, object_name, obj_data):
         """Load furniture object from 3D-FUTURE dataset with texture support"""
         # 1차: CLIP 결과에서 시도
@@ -1193,16 +1175,8 @@ class SceneComposer:
             print(f"⚠️  No CLIP results for {object_name}, trying text retrieval fallback...")
             clip_ids = self.get_object_ids_from_text_retrieval(object_name)
 
-        # 3차: 텍스트 검색도 실패 시 데이터셋에서 아무 모델이나 찾기
         if not clip_ids:
-            print(f"⚠️  No text retrieval results for {object_name}, searching dataset directly...")
-            fallback_id = self.find_any_model_in_dataset()
-            if fallback_id:
-                clip_ids = [fallback_id]
-                print(f"📎 Dataset fallback: using random model {fallback_id} for {object_name}")
-
-        if not clip_ids:
-            print(f"❌ No models available at all for {object_name}, skipping this object")
+            print(f"⏭️ No retrieval results for {object_name}, skipping (없는 객체 처리)")
             return None
 
         # 모든 ID를 시도 (기존: 3개만 → 전체 시도)
