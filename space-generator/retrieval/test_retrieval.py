@@ -224,8 +224,40 @@ class FurnitureSearchEngine:
         
         intersection = len(words1 & words2)
         union = len(words1 | words2)
-        
+
         return intersection / union if union > 0 else 0.0
+
+    def infer_super_category_from_object_text(self, query_text: str) -> Tuple[str, Set[str]]:
+        """Other로 떨어지는 경우를 위한 객체명 기반 fallback 분류"""
+        query_words = set(self.tokenize(query_text))
+
+        # LLM이 만든 객체명에서 핵심 명사를 뽑아 super category에 매핑
+        super_category_synonyms = {
+            'cabinet/shelf/desk': {
+                'cabinet', 'shelf', 'bookcase', 'desk', 'wardrobe', 'dresser', 'drawer',
+                'chest', 'nightstand', 'stand', 'console', 'sideboard', 'storage', 'basket',
+                'baskets', 'bin', 'box', 'organizer', 'hamper'
+            },
+            'bed': {'bed', 'bunk', 'mattress', 'crib'},
+            'chair': {'chair', 'armchair', 'seat', 'seating', 'bench', 'folding', 'hanging'},
+            'table': {'table', 'desk', 'dining', 'bar', 'counter'},
+            'sofa': {'sofa', 'couch', 'loveseat', 'sectional', 'chaise'},
+            'pier/stool': {'stool', 'ottoman', 'footstool', 'pouf'},
+            'lighting': {'lamp', 'light', 'lighting', 'chandelier', 'pendant', 'ceiling', 'wall'}
+        }
+
+        best_super = None
+        best_keywords = set()
+        for super_category, synonyms in super_category_synonyms.items():
+            matched = query_words & synonyms
+            if len(matched) > len(best_keywords):
+                best_super = super_category
+                best_keywords = matched
+
+        if best_super:
+            return best_super, best_keywords
+
+        return 'other', set()
     
     def find_category_match(self, query_text: str) -> Tuple[str, str, float, str]:
         """개선된 카테고리 매칭 (TF-IDF 기반)"""
@@ -286,8 +318,15 @@ class FurnitureSearchEngine:
                 print(f"✅ Super 키워드 매칭: '{query_text}' → {super_category}")
                 print(f"   └── 매칭된 키워드: {matched_keywords}")
                 return super_category, None, 0.6, "super_keyword_match"
-        
-        # 4단계: Other로 fallback
+
+        # 4단계: 객체명 핵심명사 기반 fallback (LLM 산출물 보정)
+        inferred_super, inferred_keywords = self.infer_super_category_from_object_text(query_text)
+        if inferred_super != 'other':
+            print(f"✅ 객체명 fallback 매칭: '{query_text}' → {inferred_super}")
+            print(f"   └── 추론 키워드: {inferred_keywords}")
+            return inferred_super, None, 0.45, "object_noun_fallback"
+
+        # 5단계: Other로 fallback
         print(f"⚠️ '{query_text}' → Other로 분류")
         return 'other', None, 0.1, "other_fallback"
     
@@ -507,6 +546,38 @@ class FurnitureSearchEngine:
         union = len(words1 | words2)
         
         return intersection / union if union > 0 else 0.0
+
+    def infer_super_category_from_object_text(self, query_text: str) -> Tuple[str, Set[str]]:
+        """Other로 떨어지는 경우를 위한 객체명 기반 fallback 분류"""
+        query_words = set(self.tokenize(query_text))
+
+        # LLM이 만든 객체명에서 핵심 명사를 뽑아 super category에 매핑
+        super_category_synonyms = {
+            'cabinet/shelf/desk': {
+                'cabinet', 'shelf', 'bookcase', 'desk', 'wardrobe', 'dresser', 'drawer',
+                'chest', 'nightstand', 'stand', 'console', 'sideboard', 'storage', 'basket',
+                'baskets', 'bin', 'box', 'organizer', 'hamper'
+            },
+            'bed': {'bed', 'bunk', 'mattress', 'crib'},
+            'chair': {'chair', 'armchair', 'seat', 'seating', 'bench', 'folding', 'hanging'},
+            'table': {'table', 'desk', 'dining', 'bar', 'counter'},
+            'sofa': {'sofa', 'couch', 'loveseat', 'sectional', 'chaise'},
+            'pier/stool': {'stool', 'ottoman', 'footstool', 'pouf'},
+            'lighting': {'lamp', 'light', 'lighting', 'chandelier', 'pendant', 'ceiling', 'wall'}
+        }
+
+        best_super = None
+        best_keywords = set()
+        for super_category, synonyms in super_category_synonyms.items():
+            matched = query_words & synonyms
+            if len(matched) > len(best_keywords):
+                best_super = super_category
+                best_keywords = matched
+
+        if best_super:
+            return best_super, best_keywords
+
+        return 'other', set()
     
     def find_category_match(self, query_text: str) -> Tuple[str, str, float, str]:
         """개선된 카테고리 매칭 (TF-IDF 기반)"""
@@ -568,7 +639,14 @@ class FurnitureSearchEngine:
                 print(f"   └── 매칭된 키워드: {matched_keywords}")
                 return super_category, None, 0.6, "super_keyword_match"
         
-        # 4단계: Other로 fallback
+        # 4단계: 객체명 핵심명사 기반 fallback (LLM 산출물 보정)
+        inferred_super, inferred_keywords = self.infer_super_category_from_object_text(query_text)
+        if inferred_super != 'other':
+            print(f"✅ 객체명 fallback 매칭: '{query_text}' → {inferred_super}")
+            print(f"   └── 추론 키워드: {inferred_keywords}")
+            return inferred_super, None, 0.45, "object_noun_fallback"
+
+        # 5단계: Other로 fallback
         print(f"⚠️ '{query_text}' → Other로 분류")
         return 'other', None, 0.1, "other_fallback"
     
